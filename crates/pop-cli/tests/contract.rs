@@ -31,8 +31,8 @@ async fn contract_lifecycle() -> Result<()> {
 	// pop build contract
 	Command::cargo_bin("pop")
 		.unwrap()
-		.current_dir(&temp_dir)
-		.args(&["build", "contract", "--path", "./test_contract", "--release"])
+		.current_dir(&temp_dir.join("test_contract"))
+		.args(&["build", "contract", "--release"])
 		.assert()
 		.success();
 	// Verify that the folder target has been created
@@ -57,7 +57,7 @@ async fn contract_lifecycle() -> Result<()> {
 	Command::cargo_bin("pop")
 		.unwrap()
 		.current_dir(&temp_dir.join("test_contract"))
-		.args(&["up", "contract", "--upload-only"])
+		.args(&["up", "contract", "--upload-only", "-y"])
 		.assert()
 		.success();
 	// Instantiate contract, only dry-run
@@ -74,6 +74,7 @@ async fn contract_lifecycle() -> Result<()> {
 			"--suri",
 			"//Alice",
 			"--dry-run",
+			"-y",
 		])
 		.assert()
 		.success();
