@@ -7,10 +7,15 @@ on:
     branches: [ "main" ]
 
 jobs:
+  build:
+    - uses: actions/checkout@v4
+
+    - uses: "./.github/actions/init"
+      with:
+        git-user: ${{ env.GITHUB_ACTOR }}
   arch:
+    needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v4
@@ -35,9 +40,8 @@ jobs:
           . "$HOME/.cargo/env"
           cargo test --no-default-features --features parachain --test parachain
   debian:
+    needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     container: debian
     steps:
       - uses: actions/checkout@v4
@@ -62,9 +66,8 @@ jobs:
           . "$HOME/.cargo/env"
           cargo test --no-default-features --features parachain --test parachain
   macos:
+    needs: build
     runs-on: macos-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
@@ -88,6 +91,7 @@ jobs:
           . "$HOME/.cargo/env"
           cargo test --no-default-features --features parachain --test parachain
   redhat:
+    needs: build
     runs-on: ubuntu-latest
     container: redhat/ubi8
     steps:
@@ -113,6 +117,7 @@ jobs:
           . "$HOME/.cargo/env"
           cargo test --no-default-features --features parachain --test parachain
   ubuntu:
+    needs: build
     runs-on: ubuntu-latest
     container: ubuntu
     steps:
