@@ -8,11 +8,12 @@ on:
 
 jobs:
   build:
-    - uses: actions/checkout@v4
-
-    - uses: "./.github/actions/init"
-      with:
-        git-user: ${{ env.GITHUB_ACTOR }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: "./.github/actions/init"
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
   arch:
     needs: build
     runs-on: ubuntu-latest
