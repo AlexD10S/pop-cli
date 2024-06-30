@@ -18,6 +18,14 @@ jobs:
         run: pacman -Syu --needed --noconfirm cmake curl git base-devel
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Install Pop
+        run: |
+          . "$HOME/.cargo/env"
+          cargo install --locked --no-default-features --features contract,parachain --path ./crates/pop-cli
+      - name: Run Pop install
+        run: |
+          . "$HOME/.cargo/env"
+          pop install -y
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
@@ -37,6 +45,14 @@ jobs:
         run: apt-get update && apt-get -y install build-essential cmake curl git
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Install Pop
+        run: |
+          . "$HOME/.cargo/env"
+          cargo install --locked --no-default-features --features contract,parachain --path ./crates/pop-cli
+      - name: Run Pop install
+        run: |
+          . "$HOME/.cargo/env"
+          pop install -y
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
@@ -55,6 +71,14 @@ jobs:
         run: brew update && brew install cmake openssl protobuf
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Install Pop
+        run: |
+          . "$HOME/.cargo/env"
+          cargo install --locked --no-default-features --features contract,parachain --path ./crates/pop-cli
+      - name: Run Pop install
+        run: |
+          . "$HOME/.cargo/env"
+          pop install -y
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
@@ -72,6 +96,14 @@ jobs:
         run: yum update -y && yum install -y perl-IPC-Cmd clang curl git make cmake protobuf-compiler gcc pkg-config openssl-devel
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Install Pop
+        run: |
+          . "$HOME/.cargo/env"
+          cargo install --locked --no-default-features --features contract,parachain --path ./crates/pop-cli
+      - name: Run Pop install
+        run: |
+          . "$HOME/.cargo/env"
+          pop install -y
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
@@ -89,6 +121,14 @@ jobs:
         run: apt-get update && apt-get -y install build-essential cmake curl git
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Install Pop
+        run: |
+          . "$HOME/.cargo/env"
+          cargo install --locked --no-default-features --features contract,parachain --path ./crates/pop-cli
+      - name: Run Pop install
+        run: |
+          . "$HOME/.cargo/env"
+          pop install -y
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
