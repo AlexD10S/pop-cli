@@ -128,7 +128,7 @@ jobs:
           tool: nextest
 
       - name: Run integration tests
-        run: cargo nextest run --no-default-features --features contract --test contract
+        run: nextest run --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
@@ -153,4 +153,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
-        run: cargo nextest run --no-default-features --features parachain --test parachain
+        run: nextest run --no-default-features --features parachain --test parachain

@@ -56,11 +56,11 @@ jobs:
       - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features parachain --test parachain
+          nextest run --no-default-features --features parachain --test parachain
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features contract --test contract
+          nextest run --no-default-features --features contract --test contract
   macos:
     runs-on: macos-latest
     steps:
@@ -84,11 +84,11 @@ jobs:
       - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features parachain --test parachain
+          nextest run --no-default-features --features parachain --test parachain
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features contract --test contract
+          nextest run --no-default-features --features contract --test contract
   redhat:
     runs-on: ubuntu-latest
     container: redhat/ubi8
@@ -113,11 +113,11 @@ jobs:
       - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features parachain --test parachain
+          nextest run --no-default-features --features parachain --test parachain
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features contract --test contract
+          nextest run --no-default-features --features contract --test contract
   ubuntu:
     runs-on: ubuntu-latest
     container: ubuntu
@@ -142,8 +142,8 @@ jobs:
       - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features parachain --test parachain
+          nextest run --no-default-features --features parachain --test parachain
       - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo nextest run --no-default-features --features contract --test contract
+          nextest run --no-default-features --features contract --test contract
