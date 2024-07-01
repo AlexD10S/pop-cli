@@ -122,8 +122,13 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Install nextest
+        uses: taiki-e/install-action@v2.34.3
+        with:
+          tool: nextest
+
       - name: Run integration tests
-        run: cargo test --no-default-features --features contract --test contract
+        run: cargo nextest --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
@@ -148,4 +153,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
-        run: cargo test --no-default-features --features parachain --test parachain
+        run: cargo nextest --no-default-features --features parachain --test parachain
