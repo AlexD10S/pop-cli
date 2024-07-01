@@ -44,8 +44,6 @@ async fn main() -> Result<()> {
 			let _ = record_cli_command(tel, "error", json!({&command: &subcommand})).await;
 		}
 	}
-	let account_id = AccountId::unchecked_from(bs58_string.as_bytes());
-
 	// map result from Result<Value> to Result<()>
 	res.map(|_| ())
 }
