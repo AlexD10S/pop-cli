@@ -91,11 +91,8 @@ jobs:
   contract-integration-tests:
     needs: lint
     strategy:
-      fail-fast: false
       matrix:
-        # We want newer versions than 'latest' here to have current wasm-opt
-        os: ["ubuntu-22.04", "macos-12"]
-        partition: [1, 2]
+        os: ["ubuntu-latest", "macos-latest"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -110,11 +107,8 @@ jobs:
   parachain-integration-tests:
     needs: lint
     strategy:
-      fail-fast: false
       matrix:
-        # We want newer versions than 'latest' here to have current wasm-opt
-        os: ["ubuntu-22.04", "macos-12"]
-        partition: [1, 2]
+        os: ["ubuntu-latest", "macos-latest"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
