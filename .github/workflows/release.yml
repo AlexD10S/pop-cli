@@ -41,8 +41,7 @@ jobs:
       - name: Install packages (Linux)
         if: contains(matrix.platform.target, 'linux')
         run: |
-          sudo apt-get install -y protobuf-compiler ${{ contains(matrix.platform.target, 'aarch64') && 'crossbuild-essential-arm64' || '' }}
-          protoc --version
+          yum update -y && yum install -y perl-IPC-Cmd clang curl git make cmake protobuf-compiler gcc pkg-config openssl-devel
 
       - name: Install packages (macOS)
         if: contains(matrix.platform.target, 'apple')
