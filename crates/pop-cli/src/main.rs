@@ -7,7 +7,6 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use commands::*;
 use serde_json::json;
-use sp_core::crypto::UncheckedFrom;
 use std::{fs::create_dir_all, path::PathBuf};
 #[cfg(feature = "telemetry")]
 use {

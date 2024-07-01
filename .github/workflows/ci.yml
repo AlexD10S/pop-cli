@@ -127,8 +127,13 @@ jobs:
         with:
           tool: nextest
 
+      - name: Download archive
+        uses: actions/download-artifact@v4
+        with:
+          name: nextest-archive-${{ matrix.os }}
+
       - name: Run integration tests
-        run: nextest run --no-default-features --features contract --test contract
+        run: cargo nextest run --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
@@ -151,6 +156,16 @@ jobs:
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
+      
+      - name: Install nextest
+        uses: taiki-e/install-action@v2.34.3
+        with:
+          tool: nextest
+
+      - name: Download archive
+        uses: actions/download-artifact@v4
+        with:
+          name: nextest-archive-${{ matrix.os }}
 
       - name: Run integration tests
-        run: nextest run --no-default-features --features parachain --test parachain
+        run: cargo nextest run --archive-file nextest-archive-${{ matrix.os }}.tar.zst --no-default-features --features parachain --test parachain
