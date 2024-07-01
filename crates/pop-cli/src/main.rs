@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use commands::*;
 use serde_json::json;
+use sp_core::crypto::UncheckedFrom;
 use std::{fs::create_dir_all, path::PathBuf};
 #[cfg(feature = "telemetry")]
 use {
@@ -44,6 +45,7 @@ async fn main() -> Result<()> {
 			let _ = record_cli_command(tel, "error", json!({&command: &subcommand})).await;
 		}
 	}
+	let account_id = AccountId::unchecked_from(bs58_string.as_bytes());
 
 	// map result from Result<Value> to Result<()>
 	res.map(|_| ())

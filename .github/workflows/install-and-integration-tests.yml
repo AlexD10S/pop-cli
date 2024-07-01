@@ -1,4 +1,4 @@
-name: pop install
+name: pop install & integration-tests
 
 on:
   push:
@@ -49,14 +49,18 @@ jobs:
         run: |
           . "$HOME/.cargo/env"
           pop install -y
-      - name: Run integration tests
+      - name: Install nextest
+        uses: taiki-e/install-action@v2.34.3
+        with:
+          tool: nextest
+      - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features parachain --test parachain
-      - name: Run integration tests
+          cargo nextest --no-default-features --features parachain --test parachain
+      - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features contract --test contract
+          cargo nextest --no-default-features --features contract --test contract
   macos:
     runs-on: macos-latest
     steps:
@@ -73,14 +77,18 @@ jobs:
         run: |
           . "$HOME/.cargo/env"
           pop install -y
-      - name: Run integration tests
+      - name: Install nextest
+        uses: taiki-e/install-action@v2.34.3
+        with:
+          tool: nextest
+      - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features parachain --test parachain
-      - name: Run integration tests
+          cargo nextest --no-default-features --features parachain --test parachain
+      - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features contract --test contract
+          cargo nextest --no-default-features --features contract --test contract
   redhat:
     runs-on: ubuntu-latest
     container: redhat/ubi8
@@ -98,14 +106,18 @@ jobs:
         run: |
           . "$HOME/.cargo/env"
           pop install -y
-      - name: Run integration tests
+      - name: Install nextest
+        uses: taiki-e/install-action@v2.34.3
+        with:
+          tool: nextest
+      - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features parachain --test parachain
-      - name: Run integration tests
+          cargo nextest --no-default-features --features parachain --test parachain
+      - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features contract --test contract
+          cargo nextest --no-default-features --features contract --test contract
   ubuntu:
     runs-on: ubuntu-latest
     container: ubuntu
@@ -123,11 +135,15 @@ jobs:
         run: |
           . "$HOME/.cargo/env"
           pop install -y
-      - name: Run integration tests
+      - name: Install nextest
+        uses: taiki-e/install-action@v2.34.3
+        with:
+          tool: nextest
+      - name: Run parachain integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features parachain --test parachain
-      - name: Run integration tests
+          cargo nextest --no-default-features --features parachain --test parachain
+      - name: Run contracts integration tests
         run: |
           . "$HOME/.cargo/env"
-          cargo test --no-default-features --features contract --test contract
+          cargo nextest --no-default-features --features contract --test contract
