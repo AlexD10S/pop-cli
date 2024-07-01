@@ -95,22 +95,20 @@ jobs:
         os: ["ubuntu-latest", "macos-latest"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install packages (Linux)
-        if: contains(matrix.platform.target, 'linux')
-        run: |
-          sudo apt-get install -y protobuf-compiler ${{ contains(matrix.platform.target, 'aarch64') && 'crossbuild-essential-arm64' || '' }}
-          protoc --version
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+          target: wasm32-unknown-unknown
+          components: rust-src, clippy
 
-      - name: Install packages (macOS)
-        if: contains(matrix.platform.target, 'apple')
-        run: |
-          brew install protobuf
-          protoc --version
-
-      - name: Add target
-        run: rustup target add ${{ matrix.platform.target }}
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
         run: cargo test --no-default-features --features contract --test contract
@@ -122,22 +120,20 @@ jobs:
         os: ["ubuntu-latest", "macos-latest"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install packages (Linux)
-        if: contains(matrix.platform.target, 'linux')
-        run: |
-          sudo apt-get install -y protobuf-compiler ${{ contains(matrix.platform.target, 'aarch64') && 'crossbuild-essential-arm64' || '' }}
-          protoc --version
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+          target: wasm32-unknown-unknown
+          components: rust-src, clippy
 
-      - name: Install packages (macOS)
-        if: contains(matrix.platform.target, 'apple')
-        run: |
-          brew install protobuf
-          protoc --version
-
-      - name: Add target
-        run: rustup target add ${{ matrix.platform.target }}
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
         run: cargo test --no-default-features --features parachain --test parachain
