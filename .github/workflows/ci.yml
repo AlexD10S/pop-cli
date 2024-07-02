@@ -157,4 +157,4 @@ jobs:
           protoc --version
 
       - name: Run integration tests
-        run: cargo test --archive-file nextest-archive-${{ matrix.os }}.tar.zst --no-default-features --features parachain --test parachain
+        run: cargo test --no-default-features --features parachain --test parachain
