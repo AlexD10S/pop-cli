@@ -102,10 +102,9 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
-          default: true
+          toolchain: 1.62.0
           target: wasm32-unknown-unknown
-          components: rust-src, clippy
+          override: true
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -127,10 +126,9 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
-          default: true
+          toolchain: 1.62.0
           target: wasm32-unknown-unknown
-          components: rust-src, clippy
+          override: true
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
