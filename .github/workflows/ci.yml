@@ -119,9 +119,6 @@ jobs:
           brew install protobuf
           protoc --version
 
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-
       - name: Run integration tests
         run: cargo test --no-default-features --features contract --test contract
 
@@ -134,15 +131,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-          target: wasm32-unknown-unknown
-          components: rust-src, clippy
 
       - name: Install packages (Linux)
         if: contains(matrix.platform.target, 'linux')
@@ -157,9 +145,6 @@ jobs:
       - name: Install Rust (macOS)
         if: contains(matrix.platform.target, 'apple')
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
         run: cargo test --no-default-features --features parachain --test parachain
