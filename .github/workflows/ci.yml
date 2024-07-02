@@ -102,7 +102,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.62.0
+          toolchain: stable
           target: wasm32-unknown-unknown
           override: true
 
@@ -126,7 +126,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.62.0
+          toolchain: stable
           target: wasm32-unknown-unknown
           override: true
 
