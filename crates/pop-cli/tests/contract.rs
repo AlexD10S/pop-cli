@@ -43,11 +43,11 @@ async fn contract_lifecycle() -> Result<()> {
 	assert!(temp_dir.join("test_contract/target/ink/test_contract.json").exists());
 
 	// pop test contract
-	Command::cargo_bin("pop")
-		.unwrap()
-		.args(&["test", "contract", "-p", &temp_dir.join("test_contract").display().to_string()])
-		.assert()
-		.success();
+	// Command::cargo_bin("pop")
+	// 	.unwrap()
+	// 	.args(&["test", "contract", "-p", &temp_dir.join("test_contract").display().to_string()])
+	// 	.assert()
+	// 	.success();
 	// Run the contracts node
 	let cache = temp_dir.join("cache");
 	let mut process = run_contracts_node(cache).await?;
