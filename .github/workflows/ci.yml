@@ -107,17 +107,8 @@ jobs:
           target: wasm32-unknown-unknown
           components: rust-src, clippy
 
-      - name: Install packages (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        uses: "./.github/actions/init"
-        with:
-          git-user: ${{ env.GITHUB_ACTOR }}
-
-      - name: Install packages (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install protobuf
-          protoc --version
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
         run: cargo test --no-default-features --features contract --test contract
@@ -132,19 +123,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+     - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+          target: wasm32-unknown-unknown
+          components: rust-src, clippy
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Install packages (Linux)
         if: matrix.os == 'ubuntu-latest'
         uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
-      - name: Install prerequisites (macOS)
+      - name: Install packages (macOS)
         if: matrix.os == 'macos-latest'
-        run: brew update && brew install cmake openssl protobuf
-      
-      - name: Install Rust (macOS)
-        if: matrix.os == 'macos-latest'
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        run: |
+          brew install protobuf
+          protoc --version
 
       - name: Run integration tests
         run: cargo test --no-default-features --features parachain --test parachain
