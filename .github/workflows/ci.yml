@@ -140,17 +140,13 @@ jobs:
 
       - name: Install prerequisites (macOS)
         if: contains(matrix.platform.target, 'apple')
-        run: brew update && brew install cmake openssl
+        run: brew update && brew install cmake openssl protobuf
       
-      - name: Install protobuf (macOS)
-        if: contains(matrix.platform.target, 'apple')
-        run: |
-          brew install protobuf
-          protoc --version
-
       - name: Install Rust (macOS)
         if: contains(matrix.platform.target, 'apple')
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
       - name: Run integration tests
-        run: cargo test --no-default-features --features parachain --test parachain
+        run: |
+          . "$HOME/.cargo/env"
+          cargo test --no-default-features --features parachain --test parachain
