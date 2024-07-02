@@ -150,11 +150,16 @@ jobs:
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
-      - name: Install packages (macOS)
+      - name: Install prerequisites (macOS)
         if: contains(matrix.platform.target, 'apple')
-        run: |
-          brew install protobuf
-          protoc --version
+        run: brew update && brew install cmake openssl protobuf
+
+      - name: Install Rust (macOS)
+        if: contains(matrix.platform.target, 'apple')
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
         run: cargo test --no-default-features --features parachain --test parachain
