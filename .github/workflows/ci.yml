@@ -109,9 +109,9 @@ jobs:
 
       - name: Install packages (Linux)
         if: contains(matrix.platform.target, 'linux')
-        run: |
-          sudo apt-get install -y protobuf-compiler ${{ contains(matrix.platform.target, 'aarch64') && 'crossbuild-essential-arm64' || '' }}
-          protoc --version
+        uses: "./.github/actions/init"
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
 
       - name: Install packages (macOS)
         if: contains(matrix.platform.target, 'apple')
@@ -122,18 +122,8 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install nextest
-        uses: taiki-e/install-action@v2.34.3
-        with:
-          tool: nextest
-
-      - name: Download archive
-        uses: actions/download-artifact@v4
-        with:
-          name: nextest-archive-${{ matrix.os }}
-
       - name: Run integration tests
-        run: cargo nextest run --no-default-features --features contract --test contract
+        run: cargo test --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
@@ -154,18 +144,17 @@ jobs:
           target: wasm32-unknown-unknown
           components: rust-src, clippy
 
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-      
-      - name: Install nextest
-        uses: taiki-e/install-action@v2.34.3
+      - name: Install packages (Linux)
+        if: contains(matrix.platform.target, 'linux')
+        uses: "./.github/actions/init"
         with:
-          tool: nextest
+          git-user: ${{ env.GITHUB_ACTOR }}
 
-      - name: Download archive
-        uses: actions/download-artifact@v4
-        with:
-          name: nextest-archive-${{ matrix.os }}
+      - name: Install packages (macOS)
+        if: contains(matrix.platform.target, 'apple')
+        run: |
+          brew install protobuf
+          protoc --version
 
       - name: Run integration tests
-        run: cargo nextest run --archive-file nextest-archive-${{ matrix.os }}.tar.zst --no-default-features --features parachain --test parachain
+        run: cargo test --archive-file nextest-archive-${{ matrix.os }}.tar.zst --no-default-features --features parachain --test parachain

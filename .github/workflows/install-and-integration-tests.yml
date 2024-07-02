@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
-        run: pacman -Syu --needed --noconfirm cmake curl git base-devel
+        run: pacman -Syu --needed --noconfirm cmake curl git base-devel protobuf-compiler
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: Install Pop
