@@ -140,7 +140,13 @@ jobs:
 
       - name: Install prerequisites (macOS)
         if: contains(matrix.platform.target, 'apple')
-        run: brew update && brew install cmake openssl protobuf
+        run: brew update && brew install cmake openssl
+      
+      - name: Install protobuf (macOS)
+        if: contains(matrix.platform.target, 'apple')
+        run: |
+          brew install protobuf
+          protoc --version
 
       - name: Install Rust (macOS)
         if: contains(matrix.platform.target, 'apple')
