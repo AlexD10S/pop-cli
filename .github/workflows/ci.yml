@@ -123,7 +123,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-     - name: Install stable toolchain
+      - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
