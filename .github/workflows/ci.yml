@@ -108,13 +108,13 @@ jobs:
           components: rust-src, clippy
 
       - name: Install packages (Linux)
-        if: contains(matrix.platform.target, 'linux')
+        if: matrix.os == 'ubuntu-latest'
         uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
       - name: Install packages (macOS)
-        if: contains(matrix.platform.target, 'apple')
+        if: matrix.os == 'macos-latest'
         run: |
           brew install protobuf
           protoc --version
@@ -133,20 +133,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install packages (Linux)
-        if: contains(matrix.platform.target, 'linux')
+        if: matrix.os == 'ubuntu-latest'
         uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
       - name: Install prerequisites (macOS)
-        if: contains(matrix.platform.target, 'apple')
+        if: matrix.os == 'macos-latest'
         run: brew update && brew install cmake openssl protobuf
       
       - name: Install Rust (macOS)
-        if: contains(matrix.platform.target, 'apple')
+        if: matrix.os == 'macos-latest'
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
       - name: Run integration tests
-        run: |
-          . "$HOME/.cargo/env"
-          cargo test --no-default-features --features parachain --test parachain
+        run: cargo test --no-default-features --features parachain --test parachain
