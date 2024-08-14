@@ -38,6 +38,25 @@ jobs:
       - name: Build default features
         run: cargo build
 
+  clippy:
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    env:
+      RUSTFLAGS: "-Wmissing_docs"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: "./.github/actions/init"
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
+
+      - name: Annotate with Clippy warnings
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   deny:
     runs-on: ubuntu-latest
     steps:
@@ -105,7 +124,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
+        os: [ "ubuntu-latest", "macos-latest" ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -130,7 +149,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
+        os: [ "ubuntu-latest", "macos-latest" ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
