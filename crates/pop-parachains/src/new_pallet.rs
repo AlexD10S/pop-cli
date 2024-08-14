@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path};
 
 use crate::errors::Error;
 use crate::{
@@ -40,7 +40,7 @@ pub fn create_pallet_template(
 }
 
 /// Generate a pallet folder and file structure
-fn generate_pallet_structure(target: &PathBuf, pallet_name: &str) -> Result<(), Error> {
+fn generate_pallet_structure(target: &Path, pallet_name: &str) -> Result<(), Error> {
 	use fs::{create_dir, File};
 	let (pallet, src) = (target.join(pallet_name), target.join(pallet_name.to_string() + "/src"));
 	create_dir(&pallet)?;
@@ -57,7 +57,7 @@ fn generate_pallet_structure(target: &PathBuf, pallet_name: &str) -> Result<(), 
 fn render_pallet(
 	pallet_name: String,
 	config: TemplatePalletConfig,
-	pallet_path: &PathBuf,
+	pallet_path: &Path,
 ) -> Result<(), Error> {
 	let pallet_name = pallet_name.replace('-', "_");
 	// Todo `module` must be of the form Template if pallet_name : `pallet_template`

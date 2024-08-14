@@ -14,11 +14,11 @@ use subxt::{Config, PolkadotConfig as DefaultConfig};
 pub fn get_manifest_path(path: Option<&Path>) -> Result<ManifestPath, Error> {
 	if let Some(path) = path {
 		let full_path = PathBuf::from(path.to_string_lossy().to_string() + "/Cargo.toml");
-		return ManifestPath::try_from(Some(full_path))
-			.map_err(|e| Error::ManifestPath(format!("Failed to get manifest path: {}", e)));
+		ManifestPath::try_from(Some(full_path))
+			.map_err(|e| Error::ManifestPath(format!("Failed to get manifest path: {}", e)))
 	} else {
-		return ManifestPath::try_from(path.as_ref())
-			.map_err(|e| Error::ManifestPath(format!("Failed to get manifest path: {}", e)));
+		ManifestPath::try_from(path.as_ref())
+			.map_err(|e| Error::ManifestPath(format!("Failed to get manifest path: {}", e)))
 	}
 }
 
@@ -44,7 +44,7 @@ pub fn canonicalized_path(target: &Path) -> Result<PathBuf, Error> {
 	target
 		.canonicalize()
 		// If an I/O error occurs during canonicalization, convert it into an Error enum variant.
-		.map_err(|e| Error::IO(e))
+		.map_err(Error::IO)
 }
 /// Recursively copy a directory and its files.
 ///

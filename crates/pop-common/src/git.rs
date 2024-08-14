@@ -30,7 +30,7 @@ impl Git {
 		};
 
 		if let Some(reference) = reference {
-			let object = repo.revparse_single(&reference).expect("Object not found");
+			let object = repo.revparse_single(reference).expect("Object not found");
 			repo.checkout_tree(&object, None).expect("Failed to checkout");
 		}
 		Ok(())
@@ -61,10 +61,9 @@ impl Git {
 	) -> Result<Option<String>> {
 		let repo = match GitRepository::clone(url, target) {
 			Ok(repo) => repo,
-			Err(_e) => Self::ssh_clone_and_degit(
-				url::Url::parse(url).map_err(|err| Error::from(err))?,
-				target,
-			)?,
+			Err(_e) => {
+				Self::ssh_clone_and_degit(url::Url::parse(url).map_err(Error::from)?, target)?
+			},
 		};
 
 		if let Some(tag_version) = tag_version {
@@ -79,7 +78,7 @@ impl Git {
 			.expect("Failed to set HEAD");
 
 			let git_dir = repo.path();
-			fs::remove_dir_all(&git_dir)?;
+			fs::remove_dir_all(git_dir)?;
 			return Ok(Some(tag_version));
 		}
 
@@ -87,7 +86,7 @@ impl Git {
 		let release = Self::fetch_latest_tag(&repo);
 
 		let git_dir = repo.path();
-		fs::remove_dir_all(&git_dir)?;
+		fs::remove_dir_all(git_dir)?;
 		// Or by default the last one
 		Ok(release)
 	}
@@ -123,11 +122,9 @@ impl Git {
 		let version_reg = Regex::new(r"v\d+\.\d+\.\d+").expect("Valid regex");
 		let tags = repo.tag_names(None).ok()?;
 		// Start from latest tags
-		for tag in tags.iter().rev() {
-			if let Some(tag) = tag {
-				if version_reg.is_match(tag) {
-					return Some(tag.to_string());
-				}
+		for tag in tags.iter().rev().flatten() {
+			if version_reg.is_match(tag) {
+				return Some(tag.to_string());
 			}
 		}
 		None
@@ -245,7 +242,7 @@ impl GitHub {
 			.path_segments()
 			.map(|c| c.collect::<Vec<_>>())
 			.expect("repository must have path segments");
-		Ok(path_segments.get(0).ok_or(Error::Git(
+		Ok(path_segments.first().ok_or(Error::Git(
 			"the organization (or user) is missing from the github url".to_string(),
 		))?)
 	}

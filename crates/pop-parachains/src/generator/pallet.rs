@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::utils::helpers::write_to_file;
 use askama::Template;
@@ -38,13 +38,13 @@ pub(crate) struct PalletWeights {}
 
 pub trait PalletItem {
 	/// Render and Write to file, root is the path to the pallet
-	fn execute(&self, root: &PathBuf) -> anyhow::Result<()>;
+	fn execute(&self, root: &Path) -> anyhow::Result<()>;
 }
 
 macro_rules! generate_pallet_item {
 	($item:ty, $filename:expr) => {
 		impl PalletItem for $item {
-			fn execute(&self, root: &PathBuf) -> anyhow::Result<()> {
+			fn execute(&self, root: &Path) -> anyhow::Result<()> {
 				let rendered = self.render()?;
 				let _ = write_to_file(&root.join($filename), &rendered);
 				Ok(())
