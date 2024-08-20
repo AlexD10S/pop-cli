@@ -53,6 +53,7 @@ async fn parachain_lifecycle() -> Result<()> {
 		.args(&[
 			"build",
 			"spec",
+			"--release",
 			"--output",
 			"./target/pop/test-spec.json",
 			"--id",
@@ -68,21 +69,21 @@ async fn parachain_lifecycle() -> Result<()> {
 		])
 		.assert()
 		.success();
-	let full_path = temp_parachain_dir.canonicalize()?;
+
 	// Assert build files have been generated
-	assert!(full_path.join("target").exists());
+	assert!(temp_parachain_dir.join("target").exists());
 	// To debug, print the content of the target folder
-	let pop_folder = full_path.join("target/pop");
+	let pop_folder = temp_parachain_dir.join("target/pop");
 	let paths = fs::read_dir(pop_folder).unwrap();
 	for path in paths {
 		println!("Name: {}", path.unwrap().path().display());
 	}
-	assert!(full_path.join("target/pop/test-spec.json").exists());
-	assert!(full_path.join("target/pop/test-spec-raw.json").exists());
-	assert!(full_path.join("target/pop/para-2222.wasm").exists());
-	assert!(full_path.join("target/pop/para-2222-genesis-state").exists());
+	assert!(temp_parachain_dir.join("target/pop/test-spec.json").exists());
+	assert!(temp_parachain_dir.join("target/pop/test-spec-raw.json").exists());
+	assert!(temp_parachain_dir.join("target/pop/para-2222.wasm").exists());
+	assert!(temp_parachain_dir.join("target/pop/para-2222-genesis-state").exists());
 
-	let content = fs::read_to_string(full_path.join("target/pop/test-spec-raw.json"))
+	let content = fs::read_to_string(temp_parachain_dir.join("target/pop/test-spec-raw.json"))
 		.expect("Could not read file");
 	// Assert custom values has been set propertly
 	assert!(content.contains("\"para_id\": 2222"));
@@ -91,7 +92,7 @@ async fn parachain_lifecycle() -> Result<()> {
 	assert!(content.contains("\"relay_chain\": \"paseo-local\""));
 	assert!(content.contains("\"protocolId\": \"pop-protocol\""));
 
-	// pop up parachain -p "./test_parachain"
+	// pop up contract -p "./test_parachain"
 	let mut cmd = Cmd::new(cargo_bin("pop"))
 		.current_dir(&temp_parachain_dir)
 		.args(&["up", "parachain", "-f", "./network.toml", "--skip-confirm"])
