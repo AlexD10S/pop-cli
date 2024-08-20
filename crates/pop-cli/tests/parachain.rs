@@ -39,7 +39,7 @@ async fn parachain_lifecycle() -> Result<()> {
 	Command::cargo_bin("pop")
 		.unwrap()
 		.current_dir(&temp_dir)
-		.args(&["build", "--path", "./test_parachain"])
+		.args(&["build", "--path", "--release", "./test_parachain"])
 		.assert()
 		.success();
 
@@ -53,7 +53,6 @@ async fn parachain_lifecycle() -> Result<()> {
 		.args(&[
 			"build",
 			"spec",
-			"--release",
 			"--output",
 			"./target/pop/test-spec.json",
 			"--id",

@@ -73,4 +73,4 @@ jobs:
           protoc --version
 
       - name: Run integration tests
-        run: cargo test --package pop-cli --test parachain -- parachain_lifecycle --exact --color always --nocapture
+        run: cargo test --package pop-cli --test parachain -- parachain_lifecycle --exact -- --show-output
