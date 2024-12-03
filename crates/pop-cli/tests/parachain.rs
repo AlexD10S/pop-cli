@@ -8,7 +8,7 @@ use std::{fs, path::Path, process::Command as Cmd};
 use strum::VariantArray;
 use tokio::time::{sleep, Duration};
 
-/// Test the parachain lifecycle: new, build, up
+/// Test the parachain lifecycle: new, build, up, call
 #[tokio::test]
 async fn parachain_lifecycle() -> Result<()> {
 	let temp = tempfile::tempdir().unwrap();
@@ -126,7 +126,7 @@ name = "collator-01"
 	assert!(cmd.try_wait().unwrap().is_none(), "the process should still be running");
 
 	// pop call parachain --pallet System --extrinsic remark --args "0x11" --url
-	// ws://127.0.0.1:8833/ --suri //Alice --skip-confirm
+	// ws://127.0.0.1:8833 --suri //Alice --skip-confirm
 	Command::cargo_bin("pop")
 		.unwrap()
 		.args(&[
@@ -139,7 +139,24 @@ name = "collator-01"
 			"--args",
 			"0x11",
 			"--url",
-			"ws://127.0.0.1:8833/",
+			"ws://127.0.0.1:8833",
+			"--suri",
+			"//Alice",
+			"--skip-confirm",
+		])
+		.assert()
+		.success();
+
+	// pop call parachain --call 0x00000411 --url ws://127.0.0.1:8833 --suri //Alice --skip-confirm
+	Command::cargo_bin("pop")
+		.unwrap()
+		.args(&[
+			"call",
+			"parachain",
+			"--call",
+			"0x00000411",
+			"--url",
+			"ws://127.0.0.1:8833",
 			"--suri",
 			"//Alice",
 			"--skip-confirm",
