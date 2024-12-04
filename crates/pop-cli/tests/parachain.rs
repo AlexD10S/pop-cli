@@ -126,7 +126,7 @@ name = "collator-01"
 		.unwrap();
 
 	// Wait 20 secs to run the chain before try a call.
-	sleep(Duration::from_secs(30)).await;
+	sleep(Duration::from_secs(100)).await;
 
 	println!("pop call parachain --pallet System --extrinsic remark --args 0x1 --url  {} --suri //Alice --skip-confirm", localhost_url);
 	// pop call parachain --pallet System --extrinsic remark --args "0x11" --url
