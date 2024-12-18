@@ -480,17 +480,17 @@ mod tests {
 	#[tokio::test]
 	async fn get_upload_and_instantiate_call_data_works() -> anyhow::Result<()> {
 		let (contracts_node_process, port, temp_dir) = start_test_environment().await?;
-		let localhost_url = format!("ws://127.0.0.1:{}", port);
 		sleep(Duration::from_secs(5)).await;
 
-		get_upload_call_data_works(port, temp_dir).await?;
+		get_upload_call_data_works(port, &temp_dir).await?;
+		get_instantiate_call_data_works(port, &temp_dir).await?;
 
 		// Stop running contracts-node
 		stop_test_environment(&contracts_node_process.id().to_string())?;
 		Ok(())
 	}
 
-	async fn get_upload_call_data_works(port: u16, temp_dir: TempDir) -> anyhow::Result<()> {
+	async fn get_upload_call_data_works(port: u16, temp_dir: &TempDir) -> anyhow::Result<()> {
 		let localhost_url = format!("ws://127.0.0.1:{}", port);
 
 		let up_contract_opts = UpContractCommand {
@@ -541,7 +541,7 @@ mod tests {
 		Ok(())
 	}
 
-	async fn get_instantiate_call_data_works(port: u16, temp_dir: TempDir) -> anyhow::Result<()> {
+	async fn get_instantiate_call_data_works(port: u16, temp_dir: &TempDir) -> anyhow::Result<()> {
 		let localhost_url = format!("ws://127.0.0.1:{}", port);
 
 		let up_contract_opts = UpContractCommand {
