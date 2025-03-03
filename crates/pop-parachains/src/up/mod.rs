@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 pub use pop_common::{
 	git::{GitHub, Repository},
 	sourcing::{Binary, GitHub::*, Source, Source::*},
+	Profile,
 };
 use std::{
 	fmt::Debug,
@@ -13,6 +14,7 @@ use std::{
 	iter::once,
 	path::{Path, PathBuf},
 };
+use strum::VariantArray;
 use symlink::{remove_symlink_file, symlink_file};
 use tempfile::{Builder, NamedTempFile};
 use toml_edit::{value, ArrayOfTables, DocumentMut, Formatted, Item, Table, Value};
@@ -30,6 +32,8 @@ pub struct Zombienet {
 	relay_chain: RelayChain,
 	/// The configuration required to launch parachains.
 	parachains: IndexMap<u32, Parachain>,
+	/// Whether any HRMP channels are to be pre-opened.
+	hrmp_channels: bool,
 }
 
 impl Zombienet {
@@ -59,7 +63,7 @@ impl Zombienet {
 		// Parse network config
 		let network_config = NetworkConfiguration::from(network_config)?;
 		// Determine relay and parachain requirements based on arguments and config
-		let relay_chain = Self::relay_chain(
+		let relay_chain = Self::init_relay_chain(
 			relay_chain_version,
 			relay_chain_runtime_version,
 			&network_config,
@@ -84,7 +88,9 @@ impl Zombienet {
 			cache,
 		)
 		.await?;
-		Ok(Self { network_config, relay_chain, parachains })
+		let hrmp_channels =
+			network_config.hrmp_channels().map(|c| !c.is_empty()).unwrap_or_default();
+		Ok(Self { network_config, relay_chain, parachains, hrmp_channels })
 	}
 
 	/// The binaries required to launch the network.
@@ -149,6 +155,14 @@ impl Zombienet {
 							}
 						}
 					}
+					// Check if the collator defines a custom launch command
+					if let Some(collator) = table.get("collator").and_then(|i| i.as_table()) {
+						if let Some(command) =
+							NetworkConfiguration::command(collator).and_then(|i| i.as_str())
+						{
+							return Some(Item::Value(Value::String(Formatted::new(command.into()))));
+						}
+					}
 
 					// Otherwise default to polkadot-parachain
 					Some(Item::Value(Value::String(Formatted::new("polkadot-parachain".into()))))
@@ -202,6 +216,18 @@ impl Zombienet {
 				continue;
 			}
 
+			// Check if command references a parachain template binary without a specified path
+			// (e.g. Polkadot SDK parachain template)
+			if ["parachain-template-node", "substrate-contracts-node"].contains(&command.as_str()) {
+				for profile in Profile::VARIANTS {
+					let binary_path = profile.target_directory(Path::new("./")).join(&command);
+					if binary_path.exists() {
+						paras.insert(id, Parachain::from_local(id, binary_path, chain)?);
+						continue 'outer;
+					}
+				}
+				return Err(Error::MissingBinary(command));
+			}
 			return Err(Error::MissingBinary(command));
 		}
 		Ok(paras)
@@ -216,7 +242,7 @@ impl Zombienet {
 	///   will use the latest available version).
 	/// * `network_config` - The network configuration to be used to launch a network.
 	/// * `cache` - The location used for caching binaries.
-	async fn relay_chain(
+	async fn init_relay_chain(
 		version: Option<&str>,
 		runtime_version: Option<&str>,
 		network_config: &NetworkConfiguration,
@@ -274,6 +300,16 @@ impl Zombienet {
 		}
 		// Otherwise use default
 		Ok(relay::default(version, runtime_version, chain, cache).await?)
+	}
+
+	/// The name of the relay chain.
+	pub fn relay_chain(&self) -> &str {
+		&self.relay_chain.chain
+	}
+
+	/// Whether any HRMP channels are to be pre-opened.
+	pub fn hrmp_channels(&self) -> bool {
+		self.hrmp_channels
 	}
 
 	/// Launches the local network.
@@ -352,6 +388,11 @@ impl NetworkConfiguration {
 	/// Returns the `parachains` configuration.
 	fn parachains_mut(&mut self) -> Option<&mut ArrayOfTables> {
 		self.0.get_mut("parachains").and_then(|p| p.as_array_of_tables_mut())
+	}
+
+	/// Returns the `hrmp_channels` configuration.
+	fn hrmp_channels(&self) -> Option<&ArrayOfTables> {
+		self.0.get("hrmp_channels").and_then(|p| p.as_array_of_tables())
 	}
 
 	/// Returns the `command` configuration.
@@ -458,6 +499,12 @@ impl NetworkConfiguration {
 						if let Some(command) = NetworkConfiguration::command_mut(collator) {
 							*command = value(&path)
 						}
+					}
+				}
+				// Resolve individual collator command to binary
+				if let Some(collator) = table.get_mut("collator").and_then(|p| p.as_table_mut()) {
+					if let Some(command) = NetworkConfiguration::command_mut(collator) {
+						*command = value(&path)
 					}
 				}
 			}
@@ -603,8 +650,8 @@ fn resolve_manifest(package: &str, path: &Path) -> Result<Option<PathBuf>, Error
 			.get("package")
 			.and_then(|i| i.as_table())
 			.and_then(|t| t.get("name"))
-			.and_then(|i| i.as_str())
-			.map_or(false, |n| n == package)
+			.and_then(|i| i.as_str()) ==
+			Some(package)
 	};
 
 	let mut manifest = Some(path);
@@ -657,8 +704,14 @@ fn resolve_manifest(package: &str, path: &Path) -> Result<Option<PathBuf>, Error
 mod tests {
 	use super::*;
 	use anyhow::Result;
-	use std::{env::current_dir, fs::File, io::Write};
+	use std::{
+		env::current_dir,
+		fs::{create_dir_all, remove_dir, remove_file, File},
+		io::Write,
+	};
 	use tempfile::tempdir;
+
+	pub(crate) const VERSION: &str = "stable2409";
 
 	mod zombienet {
 		use super::*;
@@ -683,12 +736,11 @@ mod tests {
 chain = "paseo-local"
 "#
 			)?;
-			let version = "v1.12.0";
 
 			let zombienet = Zombienet::new(
 				&cache,
 				config.path().to_str().unwrap(),
-				Some(version),
+				Some(VERSION),
 				None,
 				None,
 				None,
@@ -698,14 +750,16 @@ chain = "paseo-local"
 
 			let relay_chain = &zombienet.relay_chain.binary;
 			assert_eq!(relay_chain.name(), "polkadot");
-			assert_eq!(relay_chain.path(), temp_dir.path().join(format!("polkadot-{version}")));
-			assert_eq!(relay_chain.version().unwrap(), version);
+			assert_eq!(relay_chain.path(), temp_dir.path().join(format!("polkadot-{VERSION}")));
+			assert_eq!(relay_chain.version().unwrap(), VERSION);
 			assert!(matches!(
 				relay_chain,
 				Binary::Source { source: Source::GitHub(ReleaseArchive { tag, .. }), .. }
-				if *tag == Some(version.to_string())
+				if *tag == Some(VERSION.to_string())
 			));
 			assert!(zombienet.parachains.is_empty());
+			assert_eq!(zombienet.relay_chain(), "paseo-local");
+			assert!(!zombienet.hrmp_channels());
 			Ok(())
 		}
 
@@ -721,7 +775,7 @@ chain = "paseo-local"
 chain = "paseo-local"
 "#
 			)?;
-			let version = "v1.2.7";
+			let version = "v1.3.3";
 
 			let zombienet = Zombienet::new(
 				&cache,
@@ -761,15 +815,14 @@ chain = "paseo-local"
 				r#"
 [relaychain]
 chain = "paseo-local"
-default_command = "./bin-v1.6.0/polkadot"
+default_command = "./bin-stable2409/polkadot"
 "#
 			)?;
-			let version = "v1.12.0";
 
 			let zombienet = Zombienet::new(
 				&cache,
 				config.path().to_str().unwrap(),
-				Some(version),
+				Some(VERSION),
 				None,
 				None,
 				None,
@@ -779,12 +832,12 @@ default_command = "./bin-v1.6.0/polkadot"
 
 			let relay_chain = &zombienet.relay_chain.binary;
 			assert_eq!(relay_chain.name(), "polkadot");
-			assert_eq!(relay_chain.path(), temp_dir.path().join(format!("polkadot-{version}")));
-			assert_eq!(relay_chain.version().unwrap(), version);
+			assert_eq!(relay_chain.path(), temp_dir.path().join(format!("polkadot-{VERSION}")));
+			assert_eq!(relay_chain.version().unwrap(), VERSION);
 			assert!(matches!(
 				relay_chain,
 				Binary::Source { source: Source::GitHub(ReleaseArchive { tag, .. }), .. }
-				if *tag == Some(version.to_string())
+				if *tag == Some(VERSION.to_string())
 			));
 			assert!(zombienet.parachains.is_empty());
 			Ok(())
@@ -807,12 +860,11 @@ validator = true
 command = "polkadot"
 "#
 			)?;
-			let version = "v1.12.0";
 
 			let zombienet = Zombienet::new(
 				&cache,
 				config.path().to_str().unwrap(),
-				Some(version),
+				Some(VERSION),
 				None,
 				None,
 				None,
@@ -822,12 +874,12 @@ command = "polkadot"
 
 			let relay_chain = &zombienet.relay_chain.binary;
 			assert_eq!(relay_chain.name(), "polkadot");
-			assert_eq!(relay_chain.path(), temp_dir.path().join(format!("polkadot-{version}")));
-			assert_eq!(relay_chain.version().unwrap(), version);
+			assert_eq!(relay_chain.path(), temp_dir.path().join(format!("polkadot-{VERSION}")));
+			assert_eq!(relay_chain.version().unwrap(), VERSION);
 			assert!(matches!(
 				relay_chain,
 				Binary::Source { source: Source::GitHub(ReleaseArchive { tag, .. }), .. }
-				if *tag == Some(version.to_string())
+				if *tag == Some(VERSION.to_string())
 			));
 			assert!(zombienet.parachains.is_empty());
 			Ok(())
@@ -852,14 +904,14 @@ command = "polkadot"
 [[relaychain.nodes]]
 name = "bob"
 validator = true
-command = "polkadot-v1.12.0"
+command = "polkadot-stable2409"
 "#
 			)?;
 
 			assert!(matches!(
 				Zombienet::new(&cache, config.path().to_str().unwrap(), None, None, None, None, None).await,
 				Err(Error::UnsupportedCommand(error))
-				if error == "the relay chain command is unsupported: polkadot-v1.12.0"
+				if error == "the relay chain command is unsupported: polkadot-stable2409"
 			));
 			Ok(())
 		}
@@ -879,14 +931,14 @@ default_command = "polkadot"
 [[relaychain.nodes]]
 name = "alice"
 validator = true
-command = "polkadot-v1.12.0"
+command = "polkadot-stable2409"
 "#
 			)?;
 
 			assert!(matches!(
 				Zombienet::new(&cache, config.path().to_str().unwrap(), None, None, None, None, None).await,
 				Err(Error::UnsupportedCommand(error))
-				if error == "the relay chain command is unsupported: polkadot-v1.12.0"
+				if error == "the relay chain command is unsupported: polkadot-stable2409"
 			));
 			Ok(())
 		}
@@ -907,12 +959,12 @@ id = 1000
 chain = "asset-hub-paseo-local"
 "#
 			)?;
-			let system_parachain_version = "v1.12.0";
+			let system_parachain_version = "stable2407";
 
 			let zombienet = Zombienet::new(
 				&cache,
 				config.path().to_str().unwrap(),
-				Some("v1.11.0"),
+				Some(VERSION),
 				None,
 				Some(system_parachain_version),
 				None,
@@ -952,7 +1004,6 @@ id = 1000
 chain = "asset-hub-paseo-local"
 "#
 			)?;
-			let version = "v1.12.0";
 
 			let zombienet = Zombienet::new(
 				&cache,
@@ -960,7 +1011,7 @@ chain = "asset-hub-paseo-local"
 				None,
 				None,
 				None,
-				Some(version),
+				Some(VERSION),
 				None,
 			)
 			.await?;
@@ -972,13 +1023,13 @@ chain = "asset-hub-paseo-local"
 			assert_eq!(chain_spec_generator.name(), "paseo-chain-spec-generator");
 			assert_eq!(
 				chain_spec_generator.path(),
-				temp_dir.path().join(format!("paseo-chain-spec-generator-{version}"))
+				temp_dir.path().join(format!("paseo-chain-spec-generator-{VERSION}"))
 			);
-			assert_eq!(chain_spec_generator.version().unwrap(), version);
+			assert_eq!(chain_spec_generator.version().unwrap(), VERSION);
 			assert!(matches!(
 				chain_spec_generator,
 				Binary::Source { source: Source::GitHub(ReleaseArchive { tag, .. }), .. }
-				if *tag == Some(version.to_string())
+				if *tag == Some(VERSION.to_string())
 			));
 			Ok(())
 		}
@@ -1105,6 +1156,83 @@ default_command = "./target/release/parachain-template-node"
 		}
 
 		#[tokio::test]
+		async fn new_with_local_parachain_without_path_works() -> Result<()> {
+			let temp_dir = tempdir()?;
+			let cache = PathBuf::from(temp_dir.path());
+			let config = Builder::new().suffix(".toml").tempfile()?;
+			writeln!(
+				config.as_file(),
+				r#"
+[relaychain]
+chain = "rococo-local"
+
+[[parachains]]
+id = 1000
+
+[parachains.collator]
+name = "collator"
+command = "parachain-template-node"
+
+[[parachains]]
+id = 2000
+
+[parachains.collator]
+name = "collator"
+command = "substrate-contracts-node"
+"#
+			)?;
+			// Expecting failure since no custom path is provided and binaries don't exist in the
+			// default build directory.
+			assert!(matches!(
+				Zombienet::new(&cache, config.path().to_str().unwrap(), None, None, None, None, None).await,
+				Err(Error::MissingBinary(command))
+				if command == "parachain-template-node"
+			));
+			// Create the binaries in the default build directory.
+			let parachain_template = PathBuf::from("target/release/parachain-template-node");
+			create_dir_all(parachain_template.parent().unwrap())?;
+			File::create(&parachain_template)?;
+			// Ensure the the binary is detected in the debug profile too.
+			let parachain_contracts_template =
+				PathBuf::from("target/debug/substrate-contracts-node");
+			create_dir_all(parachain_contracts_template.parent().unwrap())?;
+			File::create(&parachain_contracts_template)?;
+
+			let zombienet = Zombienet::new(
+				&cache,
+				config.path().to_str().unwrap(),
+				None,
+				None,
+				None,
+				None,
+				None,
+			)
+			.await?;
+			// Remove the binaries created above after Zombienet initialization, as they are no
+			// longer needed.
+			remove_file(&parachain_template)?;
+			remove_file(&parachain_contracts_template)?;
+			remove_dir(parachain_template.parent().unwrap())?;
+			remove_dir(parachain_contracts_template.parent().unwrap())?;
+
+			assert_eq!(zombienet.parachains.len(), 2);
+			let parachain = &zombienet.parachains.get(&1000).unwrap().binary;
+			assert_eq!(parachain.name(), "parachain-template-node");
+			assert_eq!(parachain.path(), Path::new("./target/release/parachain-template-node"));
+			assert_eq!(parachain.version(), None);
+			assert!(matches!(parachain, Binary::Local { .. }));
+			let contract_parachain = &zombienet.parachains.get(&2000).unwrap().binary;
+			assert_eq!(contract_parachain.name(), "substrate-contracts-node");
+			assert_eq!(
+				contract_parachain.path(),
+				Path::new("./target/debug/substrate-contracts-node")
+			);
+			assert_eq!(contract_parachain.version(), None);
+			assert!(matches!(contract_parachain, Binary::Local { .. }));
+			Ok(())
+		}
+
+		#[tokio::test]
 		async fn new_with_collator_command_works() -> Result<()> {
 			let temp_dir = tempdir()?;
 			let cache = PathBuf::from(temp_dir.path());
@@ -1183,6 +1311,48 @@ default_command = "moonbeam"
 				Binary::Source { source: Source::GitHub(SourceCodeArchive { reference, .. }), .. }
 				if *reference == Some(version.to_string())
 			));
+			Ok(())
+		}
+
+		#[tokio::test]
+		async fn new_with_hrmp_channels_works() -> Result<()> {
+			let temp_dir = tempdir()?;
+			let cache = PathBuf::from(temp_dir.path());
+			let config = Builder::new().suffix(".toml").tempfile()?;
+			writeln!(
+				config.as_file(),
+				r#"
+[relaychain]
+chain = "paseo-local"
+
+[[parachains]]
+id = 1000
+chain = "asset-hub-paseo-local"
+
+[[parachains]]
+id = 4385
+default_command = "pop-node"
+
+[[hrmp_channels]]
+sender = 4385
+recipient = 1000
+max_capacity = 1000
+max_message_size = 8000
+"#
+			)?;
+
+			let zombienet = Zombienet::new(
+				&cache,
+				config.path().to_str().unwrap(),
+				None,
+				None,
+				None,
+				None,
+				None,
+			)
+			.await?;
+
+			assert!(zombienet.hrmp_channels());
 			Ok(())
 		}
 
@@ -1384,10 +1554,9 @@ chain = "paseo-local"
 chain = "paseo-local"
 "#
 			)?;
-			let version = "v1.12.0";
-			File::create(cache.join(format!("polkadot-{version}")))?;
-			File::create(cache.join(format!("polkadot-execute-worker-{version}")))?;
-			File::create(cache.join(format!("polkadot-prepare-worker-{version}")))?;
+			File::create(cache.join(format!("polkadot-{VERSION}")))?;
+			File::create(cache.join(format!("polkadot-execute-worker-{VERSION}")))?;
+			File::create(cache.join(format!("polkadot-prepare-worker-{VERSION}")))?;
 
 			let mut zombienet = Zombienet::new(
 				&cache,
@@ -1559,6 +1728,14 @@ default_command = "./target/release/parachain-template-node"
 [[parachains.collators]]
 name = "collator"
 command = "./target/release/parachain-template-node"
+
+[[parachains]]
+id = 2002
+default_command = "./target/release/parachain-template-node"
+
+[parachains.collator]
+name = "collator"
+command = "./target/release/parachain-template-node"
 "#
 			)?;
 			let mut network_config = NetworkConfiguration::from(config.path())?;
@@ -1628,6 +1805,19 @@ command = "./target/release/parachain-template-node"
 							chain_spec_generator: None,
 						},
 					),
+					(
+						2002,
+						Parachain {
+							id: 2002,
+							binary: Binary::Local {
+								name: "parachain-template-node".to_string(),
+								path: parachain_template.to_path_buf(),
+								manifest: None,
+							},
+							chain: None,
+							chain_spec_generator: None,
+						},
+					),
 				]
 				.into(),
 			)?;
@@ -1670,6 +1860,14 @@ id = 2001
 default_command = "{3}"
 
 [[parachains.collators]]
+name = "collator"
+command = "{3}"
+
+[[parachains]]
+id = 2002
+default_command = "{3}"
+
+[parachains.collator]
 name = "collator"
 command = "{3}"
 

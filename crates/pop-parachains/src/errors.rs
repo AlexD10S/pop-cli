@@ -27,6 +27,9 @@ pub enum Error {
 	CurrentDirAccess,
 	#[error("Failed to parse the endowment value")]
 	EndowmentError,
+	/// The specified event was not found.
+	#[error("Event {0} not found.")]
+	EventNotFound(String),
 	/// An error occurred during the submission of an extrinsic.
 	#[error("Extrinsic submission error: {0}")]
 	ExtrinsicSubmissionError(String),
@@ -62,6 +65,9 @@ pub enum Error {
 	RustfmtError(std::io::Error),
 	#[error("Template error: {0}")]
 	SourcingError(#[from] pop_common::sourcing::Error),
+	/// An error occurred whilst interacting with a chain using `subxt`.
+	#[error("Subxt error: {0}")]
+	SubXtError(#[from] subxt::Error),
 	#[error("Toml error: {0}")]
 	TomlError(#[from] toml_edit::de::Error),
 	#[error("Unsupported command: {0}")]

@@ -4,7 +4,7 @@ use crate::errors::Error;
 use params::Param;
 use scale_value::stringify::custom_parsers;
 use std::fmt::{Display, Formatter};
-use subxt::{dynamic::Value, Metadata, OnlineClient, SubstrateConfig};
+use subxt::{dynamic::Value, utils::to_hex, Metadata, OnlineClient, SubstrateConfig};
 
 pub mod action;
 pub mod params;
@@ -82,7 +82,6 @@ pub fn parse_chain_metadata(client: &OnlineClient<SubstrateConfig>) -> Result<Ve
 											// dispatchable function as unsupported rather than
 											// error.
 											is_supported = false;
-											parsed_params.clear();
 											break;
 										},
 									}
@@ -179,7 +178,7 @@ pub fn parse_dispatchable_arguments(
 		.map(|(param, raw_param)| {
 			// Convert sequence parameters to hex if is_sequence
 			let processed_param = if param.is_sequence && !raw_param.starts_with("0x") {
-				format!("0x{}", hex::encode(raw_param))
+				to_hex(&raw_param)
 			} else {
 				raw_param
 			};
@@ -199,6 +198,7 @@ mod tests {
 
 	use crate::{call::tests::POP_NETWORK_TESTNET_URL, set_up_client};
 	use anyhow::Result;
+	use sp_core::bytes::from_hex;
 	use subxt::ext::scale_bits;
 
 	#[tokio::test]
@@ -283,7 +283,7 @@ mod tests {
 		]
 		.to_vec();
 		let addr: Vec<_> =
-			hex::decode("8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48")
+			from_hex("8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48")
 				.unwrap()
 				.into_iter()
 				.map(|b| Value::u128(b as u128))

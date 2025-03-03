@@ -2,14 +2,20 @@
 
 use std::path::Path;
 
-use crate::cli::{self, traits::*};
+use crate::{
+	cli::{self, traits::*},
+	common::{
+		chain::{configure, Chain},
+		wallet::{self, prompt_to_use_wallet},
+	},
+};
 use anyhow::{anyhow, Result};
 use clap::Args;
 use pop_parachains::{
 	construct_extrinsic, construct_sudo_extrinsic, decode_call_data, encode_call_data,
-	find_dispatchable_by_name, find_pallet_by_name, parse_chain_metadata, set_up_client,
-	sign_and_submit_extrinsic, supported_actions, Action, CallData, DynamicPayload, Function,
-	OnlineClient, Pallet, Param, SubstrateConfig,
+	find_dispatchable_by_name, find_pallet_by_name, sign_and_submit_extrinsic, supported_actions,
+	Action, CallData, DynamicPayload, Function, OnlineClient, Pallet, Param, Payload,
+	SubstrateConfig,
 };
 use url::Url;
 
@@ -40,6 +46,15 @@ pub struct CallChainCommand {
 	/// - with a password "//Alice///SECRET_PASSWORD"
 	#[arg(short, long)]
 	suri: Option<String>,
+	/// Use a browser extension wallet to sign the extrinsic.
+	#[arg(
+		name = "use-wallet",
+		short = 'w',
+		long,
+		default_value = "false",
+		conflicts_with = "suri"
+	)]
+	use_wallet: bool,
 	/// SCALE encoded bytes representing the call data of the extrinsic.
 	#[arg(name = "call", short, long, conflicts_with_all = ["pallet", "function", "args"])]
 	call_data: Option<String>,
@@ -55,10 +70,17 @@ impl CallChainCommand {
 	/// Executes the command.
 	pub(crate) async fn execute(mut self) -> Result<()> {
 		let mut cli = cli::Cli;
+		cli.intro("Call a chain")?;
 		// Check if all fields are specified via the command line.
 		let prompt_to_repeat_call = self.requires_user_input();
 		// Configure the chain.
-		let chain = self.configure_chain(&mut cli).await?;
+		let chain = configure(
+			"Which chain would you like to interact with?",
+			DEFAULT_URL,
+			&self.url,
+			&mut cli,
+		)
+		.await?;
 		// Execute the call if call_data is provided.
 		if let Some(call_data) = self.call_data.as_ref() {
 			if let Err(e) = self
@@ -95,7 +117,16 @@ impl CallChainCommand {
 			};
 
 			// Sign and submit the extrinsic.
-			if let Err(e) = call.submit_extrinsic(&chain.client, &chain.url, xt, &mut cli).await {
+			let result = if self.use_wallet {
+				let call_data = xt.encode_call_data(&chain.client.metadata())?;
+				wallet::submit_extrinsic(&chain.client, &chain.url, call_data, &mut cli)
+					.await
+					.map(|_| ()) // Mapping to `()` since we don't need events returned
+			} else {
+				call.submit_extrinsic(&chain.client, &chain.url, xt, &mut cli).await
+			};
+
+			if let Err(e) = result {
 				display_message(&e.to_string(), false, &mut cli)?;
 				break;
 			}
@@ -111,33 +142,6 @@ impl CallChainCommand {
 			self.reset_for_new_call();
 		}
 		Ok(())
-	}
-
-	// Configures the chain by resolving the URL and fetching its metadata.
-	async fn configure_chain(&self, cli: &mut impl Cli) -> Result<Chain> {
-		cli.intro("Call a chain")?;
-		// Resolve url.
-		let url = match &self.url {
-			Some(url) => url.clone(),
-			None => {
-				// Prompt for url.
-				let url: String = cli
-					.input("Which chain would you like to interact with?")
-					.default_input(DEFAULT_URL)
-					.interact()?;
-				Url::parse(&url)?
-			},
-		};
-
-		// Parse metadata from chain url.
-		let client = set_up_client(url.as_str()).await?;
-		let mut pallets = parse_chain_metadata(&client).map_err(|e| {
-			anyhow!(format!("Unable to fetch the chain metadata: {}", e.to_string()))
-		})?;
-		// Sort by name for display.
-		pallets.sort_by(|a, b| a.name.cmp(&b.name));
-		pallets.iter_mut().for_each(|p| p.functions.sort_by(|a, b| a.name.cmp(&b.name)));
-		Ok(Chain { url, client, pallets })
 	}
 
 	// Configure the call based on command line arguments/call UI.
@@ -197,12 +201,8 @@ impl CallChainCommand {
 			// sudo.
 			self.configure_sudo(chain, cli)?;
 
-			// Resolve who is signing the extrinsic.
-			let suri = match self.suri.as_ref() {
-				Some(suri) => suri.clone(),
-				None =>
-					cli.input("Signer of the extrinsic:").default_input(DEFAULT_URI).interact()?,
-			};
+			let (use_wallet, suri) = self.determine_signing_method(cli)?;
+			self.use_wallet = use_wallet;
 
 			return Ok(Call {
 				function: function.clone(),
@@ -210,6 +210,7 @@ impl CallChainCommand {
 				suri,
 				skip_confirm: self.skip_confirm,
 				sudo: self.sudo,
+				use_wallet: self.use_wallet,
 			});
 		}
 	}
@@ -222,11 +223,18 @@ impl CallChainCommand {
 		call_data: &str,
 		cli: &mut impl Cli,
 	) -> Result<()> {
-		// Resolve who is signing the extrinsic.
-		let suri = match self.suri.as_ref() {
-			Some(suri) => suri,
-			None => &cli.input("Signer of the extrinsic:").default_input(DEFAULT_URI).interact()?,
-		};
+		let (use_wallet, suri) = self.determine_signing_method(cli)?;
+
+		// Perform signing steps with wallet integration and return early.
+		if use_wallet {
+			let call_data_bytes =
+				decode_call_data(call_data).map_err(|err| anyhow!("{}", format!("{err:?}")))?;
+			wallet::submit_extrinsic(client, url, call_data_bytes, cli)
+				.await
+				.map_err(|err| anyhow!("{}", format!("{err:?}")))?;
+			display_message("Call complete.", true, cli)?;
+			return Ok(());
+		}
 		cli.info(format!("Encoded call data: {}", call_data))?;
 		if !self.skip_confirm &&
 			!cli.confirm("Do you want to submit the extrinsic?")
@@ -244,13 +252,36 @@ impl CallChainCommand {
 		spinner.start("Signing and submitting the extrinsic and then waiting for finalization, please be patient...");
 		let call_data_bytes =
 			decode_call_data(call_data).map_err(|err| anyhow!("{}", format!("{err:?}")))?;
-		let result = sign_and_submit_extrinsic(client, url, CallData::new(call_data_bytes), suri)
+		let result = sign_and_submit_extrinsic(client, url, CallData::new(call_data_bytes), &suri)
 			.await
 			.map_err(|err| anyhow!("{}", format!("{err:?}")))?;
 
 		spinner.stop(result);
 		display_message("Call complete.", true, cli)?;
 		Ok(())
+	}
+
+	// Resolve who is signing the extrinsic. If a `suri` was provided via the command line,
+	// skip the prompt.
+	fn determine_signing_method(&self, cli: &mut impl Cli) -> Result<(bool, String)> {
+		let mut use_wallet = self.use_wallet;
+		let suri = match self.suri.as_ref() {
+			Some(suri) => suri.clone(),
+			None =>
+				if !self.use_wallet {
+					if prompt_to_use_wallet(cli)? {
+						use_wallet = true;
+						DEFAULT_URI.to_string()
+					} else {
+						cli.input("Signer of the extrinsic:")
+							.default_input(DEFAULT_URI)
+							.interact()?
+					}
+				} else {
+					DEFAULT_URI.to_string()
+				},
+		};
+		Ok((use_wallet, suri))
 	}
 
 	// Checks if the chain has the Sudo pallet and prompts the user to confirm if they want to
@@ -283,6 +314,7 @@ impl CallChainCommand {
 		self.function = None;
 		self.args.clear();
 		self.sudo = false;
+		self.use_wallet = false;
 	}
 
 	// Function to check if all required fields are specified.
@@ -310,39 +342,31 @@ impl CallChainCommand {
 	}
 }
 
-// Represents a chain, including its URL, client connection, and available pallets.
-struct Chain {
-	// Websocket endpoint of the node.
-	url: Url,
-	// The client used to interact with the chain.
-	client: OnlineClient<SubstrateConfig>,
-	// A list of pallets available on the chain.
-	pallets: Vec<Pallet>,
-}
-
 /// Represents a configured dispatchable function call, including the pallet, function, arguments,
 /// and signing options.
-#[derive(Clone)]
-struct Call {
+#[derive(Clone, Default)]
+pub(crate) struct Call {
 	/// The dispatchable function to execute.
-	function: Function,
+	pub(crate) function: Function,
 	/// The dispatchable function arguments, encoded as strings.
-	args: Vec<String>,
+	pub(crate) args: Vec<String>,
 	/// Secret key URI for the account signing the extrinsic.
 	///
 	/// e.g.
 	/// - for a dev account "//Alice"
 	/// - with a password "//Alice///SECRET_PASSWORD"
-	suri: String,
+	pub(crate) suri: String,
+	/// Whether to use your browser wallet to sign the extrinsic.
+	pub(crate) use_wallet: bool,
 	/// Whether to automatically sign and submit the extrinsic without prompting for confirmation.
-	skip_confirm: bool,
+	pub(crate) skip_confirm: bool,
 	/// Whether to dispatch the function call with `Root` origin.
-	sudo: bool,
+	pub(crate) sudo: bool,
 }
 
 impl Call {
 	// Prepares the extrinsic.
-	fn prepare_extrinsic(
+	pub(crate) fn prepare_extrinsic(
 		&self,
 		client: &OnlineClient<SubstrateConfig>,
 		cli: &mut impl Cli,
@@ -354,7 +378,7 @@ impl Call {
 			},
 		};
 		// If sudo is required, wrap the call in a sudo call.
-		let xt = if self.sudo { construct_sudo_extrinsic(xt)? } else { xt };
+		let xt = if self.sudo { construct_sudo_extrinsic(xt) } else { xt };
 		let encoded_data = encode_call_data(client, &xt)?;
 		// If the encoded call data is too long, don't display it all.
 		if encoded_data.len() < ENCODED_CALL_DATA_MAX_LEN {
@@ -411,7 +435,12 @@ impl Call {
 				.collect();
 			full_message.push_str(&format!(" --args {}", args.join(" ")));
 		}
-		full_message.push_str(&format!(" --url {} --suri {}", chain.url, self.suri));
+		full_message.push_str(&format!(" --url {}", chain.url));
+		if self.use_wallet {
+			full_message.push_str(" --use-wallet");
+		} else {
+			full_message.push_str(&format!(" --suri {}", self.suri));
+		}
 		if self.sudo {
 			full_message.push_str(" --sudo");
 		}
@@ -444,7 +473,7 @@ fn prompt_predefined_actions(pallets: &[Pallet], cli: &mut impl Cli) -> Result<O
 }
 
 // Prompts the user for the value of a parameter.
-fn prompt_for_param(cli: &mut impl Cli, param: &Param) -> Result<String> {
+pub fn prompt_for_param(cli: &mut impl Cli, param: &Param) -> Result<String> {
 	if param.is_optional {
 		if !cli
 			.confirm(format!(
@@ -589,7 +618,8 @@ fn parse_function_name(name: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::cli::MockCli;
+	use crate::{cli::MockCli, common::wallet::USE_WALLET_PROMPT};
+	use pop_parachains::{parse_chain_metadata, set_up_client};
 	use tempfile::tempdir;
 	use url::Url;
 
@@ -598,25 +628,11 @@ mod tests {
 	const POLKADOT_NETWORK_URL: &str = "wss://polkadot-rpc.publicnode.com";
 
 	#[tokio::test]
-	async fn configure_chain_works() -> Result<()> {
-		let call_config =
-			CallChainCommand { suri: Some(DEFAULT_URI.to_string()), ..Default::default() };
-		let mut cli = MockCli::new().expect_intro("Call a chain").expect_input(
-			"Which chain would you like to interact with?",
-			POP_NETWORK_TESTNET_URL.into(),
-		);
-		let chain = call_config.configure_chain(&mut cli).await?;
-		assert_eq!(chain.url, Url::parse(POP_NETWORK_TESTNET_URL)?);
-		cli.verify()
-	}
-
-	#[tokio::test]
 	async fn guide_user_to_call_chain_works() -> Result<()> {
 		let mut call_config =
 			CallChainCommand { pallet: Some("System".to_string()), ..Default::default() };
 
 		let mut cli = MockCli::new()
-		.expect_intro("Call a chain")
 		.expect_input("Which chain would you like to interact with?", POP_NETWORK_TESTNET_URL.into())
 		.expect_select(
 			"Select the function to call:",
@@ -642,18 +658,25 @@ mod tests {
 		)
 		.expect_input("The value for `remark` might be too large to enter. You may enter the path to a file instead.", "0x11".into())
 		.expect_confirm("Would you like to dispatch this function call with `Root` origin?", true)
-		.expect_input("Signer of the extrinsic:", "//Bob".into());
+		.expect_confirm(USE_WALLET_PROMPT, true);
 
-		let chain = call_config.configure_chain(&mut cli).await?;
+		let chain = configure(
+			"Which chain would you like to interact with?",
+			POP_NETWORK_TESTNET_URL,
+			&None,
+			&mut cli,
+		)
+		.await?;
 		assert_eq!(chain.url, Url::parse(POP_NETWORK_TESTNET_URL)?);
 
 		let call_chain = call_config.configure_call(&chain, &mut cli)?;
 		assert_eq!(call_chain.function.pallet, "System");
 		assert_eq!(call_chain.function.name, "remark");
 		assert_eq!(call_chain.args, ["0x11".to_string()].to_vec());
-		assert_eq!(call_chain.suri, "//Bob");
+		assert_eq!(call_chain.suri, "//Alice"); // Default value
+		assert!(call_chain.use_wallet);
 		assert!(call_chain.sudo);
-		assert_eq!(call_chain.display(&chain), "pop call chain --pallet System --function remark --args \"0x11\" --url wss://rpc1.paseo.popnetwork.xyz/ --suri //Bob --sudo");
+		assert_eq!(call_chain.display(&chain), "pop call chain --pallet System --function remark --args \"0x11\" --url wss://rpc1.paseo.popnetwork.xyz/ --use-wallet --sudo");
 		cli.verify()
 	}
 
@@ -661,11 +684,17 @@ mod tests {
 	async fn guide_user_to_configure_predefined_action_works() -> Result<()> {
 		let mut call_config = CallChainCommand::default();
 
-		let mut cli = MockCli::new().expect_intro("Call a chain").expect_input(
+		let mut cli = MockCli::new().expect_input(
 			"Which chain would you like to interact with?",
 			POLKADOT_NETWORK_URL.into(),
 		);
-		let chain = call_config.configure_chain(&mut cli).await?;
+		let chain = configure(
+			"Which chain would you like to interact with?",
+			POP_NETWORK_TESTNET_URL,
+			&None,
+			&mut cli,
+		)
+		.await?;
 		assert_eq!(chain.url, Url::parse(POLKADOT_NETWORK_URL)?);
 		cli.verify()?;
 
@@ -714,6 +743,7 @@ mod tests {
 			},
 			args: vec!["0x11".to_string()].to_vec(),
 			suri: DEFAULT_URI.to_string(),
+			use_wallet: false,
 			skip_confirm: false,
 			sudo: false,
 		};
@@ -753,6 +783,7 @@ mod tests {
 			function: find_dispatchable_by_name(&pallets, "System", "remark")?.clone(),
 			args: vec!["0x11".to_string()].to_vec(),
 			suri: DEFAULT_URI.to_string(),
+			use_wallet: false,
 			skip_confirm: false,
 			sudo: false,
 		};
@@ -776,11 +807,13 @@ mod tests {
 			args: vec![].to_vec(),
 			url: Some(Url::parse(POP_NETWORK_TESTNET_URL)?),
 			suri: None,
+			use_wallet: false,
 			skip_confirm: false,
 			call_data: Some("0x00000411".to_string()),
 			sudo: false,
 		};
 		let mut cli = MockCli::new()
+			.expect_confirm(USE_WALLET_PROMPT, false)
 			.expect_input("Signer of the extrinsic:", "//Bob".into())
 			.expect_confirm("Do you want to submit the extrinsic?", false)
 			.expect_outro_cancel("Extrinsic with call data 0x00000411 was not submitted.");
@@ -803,27 +836,38 @@ mod tests {
 			pallet: None,
 			function: None,
 			args: vec![].to_vec(),
-			url: Some(Url::parse("wss://polkadot-rpc.publicnode.com")?),
+			url: Some(Url::parse(POLKADOT_NETWORK_URL)?),
 			suri: Some("//Alice".to_string()),
+			use_wallet: false,
 			skip_confirm: false,
 			call_data: Some("0x00000411".to_string()),
 			sudo: true,
 		};
 		let mut cli = MockCli::new()
-			.expect_intro("Call a chain")
 			.expect_warning("NOTE: sudo is not supported by the chain. Ignoring `--sudo` flag.");
-		let chain = call_config.configure_chain(&mut cli).await?;
+		let chain = configure(
+			"Which chain would you like to interact with?",
+			POP_NETWORK_TESTNET_URL,
+			&Some(Url::parse(POLKADOT_NETWORK_URL)?),
+			&mut cli,
+		)
+		.await?;
 		call_config.configure_sudo(&chain, &mut cli)?;
 		assert!(!call_config.sudo);
 		cli.verify()?;
 
 		// Test when sudo pallet exist.
-		cli = MockCli::new().expect_intro("Call a chain").expect_confirm(
+		cli = MockCli::new().expect_confirm(
 			"Would you like to dispatch this function call with `Root` origin?",
 			true,
 		);
-		call_config.url = Some(Url::parse(POP_NETWORK_TESTNET_URL)?);
-		let chain = call_config.configure_chain(&mut cli).await?;
+		let chain = configure(
+			"Which chain would you like to interact with?",
+			POP_NETWORK_TESTNET_URL,
+			&Some(Url::parse(POP_NETWORK_TESTNET_URL)?),
+			&mut cli,
+		)
+		.await?;
 		call_config.configure_sudo(&chain, &mut cli)?;
 		assert!(call_config.sudo);
 		cli.verify()
@@ -836,6 +880,7 @@ mod tests {
 			function: Some("remark".to_string()),
 			args: vec!["0x11".to_string()].to_vec(),
 			url: Some(Url::parse(POP_NETWORK_TESTNET_URL)?),
+			use_wallet: true,
 			suri: Some(DEFAULT_URI.to_string()),
 			skip_confirm: false,
 			call_data: None,
@@ -846,6 +891,7 @@ mod tests {
 		assert_eq!(call_config.function, None);
 		assert_eq!(call_config.args.len(), 0);
 		assert!(!call_config.sudo);
+		assert!(!call_config.use_wallet);
 		Ok(())
 	}
 
@@ -857,6 +903,7 @@ mod tests {
 			args: vec!["0x11".to_string()].to_vec(),
 			url: Some(Url::parse(POP_NETWORK_TESTNET_URL)?),
 			suri: Some(DEFAULT_URI.to_string()),
+			use_wallet: false,
 			skip_confirm: false,
 			call_data: None,
 			sudo: false,
@@ -875,6 +922,7 @@ mod tests {
 			args: vec!["2000".to_string(), "0x1".to_string(), "0x12".to_string()].to_vec(),
 			url: Some(Url::parse(POP_NETWORK_TESTNET_URL)?),
 			suri: Some(DEFAULT_URI.to_string()),
+			use_wallet: false,
 			call_data: None,
 			skip_confirm: false,
 			sudo: false,

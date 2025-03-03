@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::cli::{self, Cli};
+use crate::{
+	cli::{self, Cli},
+	common::builds::get_project_path,
+};
 use clap::{Args, Subcommand};
 #[cfg(feature = "contract")]
-use contract::BuildContractCommand;
+use contract::BuildContract;
 use duct::cmd;
 use pop_common::Profile;
 use std::path::PathBuf;
 #[cfg(feature = "parachain")]
-use {parachain::BuildParachainCommand, spec::BuildSpecCommand};
+use {parachain::BuildParachain, spec::BuildSpecCommand};
 
 #[cfg(feature = "contract")]
 pub(crate) mod contract;
@@ -23,9 +26,12 @@ pub(crate) mod spec;
 pub(crate) struct BuildArgs {
 	#[command(subcommand)]
 	pub command: Option<Command>,
-	/// Directory path for your project [default: current directory]
+	/// Directory path with flag for your project [default: current directory]
 	#[arg(long)]
 	pub(crate) path: Option<PathBuf>,
+	/// Directory path without flag for your project [default: current directory]
+	#[arg(value_name = "PATH", index = 1, conflicts_with = "path")]
+	pub(crate) path_pos: Option<PathBuf>,
 	/// The package to be built.
 	#[arg(short = 'p', long)]
 	pub(crate) package: Option<String>,
@@ -35,24 +41,11 @@ pub(crate) struct BuildArgs {
 	/// Build profile [default: debug].
 	#[clap(long, value_enum)]
 	pub(crate) profile: Option<Profile>,
-	/// Parachain ID to be used when generating the chain spec files.
-	#[arg(short = 'i', long = "id")]
-	#[cfg(feature = "parachain")]
-	pub(crate) id: Option<u32>,
 }
 
-/// Build a parachain, smart contract or Rust package.
+/// Subcommand for building chain artifacts.
 #[derive(Subcommand)]
 pub(crate) enum Command {
-	/// [DEPRECATED] Build a parachain
-	#[cfg(feature = "parachain")]
-	#[clap(alias = "p")]
-	Parachain(BuildParachainCommand),
-	/// [DEPRECATED] Build a contract, generate metadata, bundle together in a `<name>.contract`
-	/// file
-	#[cfg(feature = "contract")]
-	#[clap(alias = "c")]
-	Contract(BuildContractCommand),
 	/// Build a chain specification and its genesis artifacts.
 	#[cfg(feature = "parachain")]
 	#[clap(alias = "s")]
@@ -63,31 +56,31 @@ impl Command {
 	/// Executes the command.
 	pub(crate) fn execute(args: BuildArgs) -> anyhow::Result<&'static str> {
 		// If only contract feature enabled, build as contract
+		let project_path = get_project_path(args.path.clone(), args.path_pos.clone());
+
 		#[cfg(feature = "contract")]
-		if pop_contracts::is_supported(args.path.as_deref())? {
+		if pop_contracts::is_supported(project_path.as_deref().map(|v| v))? {
 			// All commands originating from root command are valid
 			let release = match args.profile {
 				Some(profile) => profile.into(),
 				None => args.release,
 			};
-			BuildContractCommand { path: args.path, release, valid: true }.execute()?;
+			BuildContract { path: project_path, release }.execute()?;
 			return Ok("contract");
 		}
 
 		// If only parachain feature enabled, build as parachain
 		#[cfg(feature = "parachain")]
-		if pop_parachains::is_supported(args.path.as_deref())? {
+		if pop_parachains::is_supported(project_path.as_deref().map(|v| v))? {
 			let profile = match args.profile {
 				Some(profile) => profile,
 				None => args.release.into(),
 			};
-			// All commands originating from root command are valid
-			BuildParachainCommand {
-				path: args.path,
+			let temp_path = PathBuf::from("./");
+			BuildParachain {
+				path: project_path.unwrap_or_else(|| temp_path).to_path_buf(),
 				package: args.package,
-				profile: Some(profile),
-				id: args.id,
-				valid: true,
+				profile,
 			}
 			.execute()?;
 			return Ok("parachain");
@@ -157,10 +150,10 @@ mod tests {
 							BuildArgs {
 								command: None,
 								path: Some(project_path.clone()),
+								path_pos: Some(project_path.clone()),
 								package: package.clone(),
 								release,
 								profile: Some(profile.clone()),
-								id: None,
 							},
 							&mut cli,
 						)?,
