@@ -176,7 +176,7 @@ jobs:
       - name: Run integration tests
         run: cargo test --no-default-features --features contract --test contract
   
-  contract-integration-tests:
+  polkavm-contract-integration-tests:
     needs: lint
     strategy:
       matrix:
