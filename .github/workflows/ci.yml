@@ -44,7 +44,7 @@ jobs:
         run: cargo check --no-default-features --features parachain
 
       - name: Build default features
-        run: cargo build
+        run: cargo build --release
 
   clippy:
     needs: lint
@@ -147,6 +147,12 @@ jobs:
           target: wasm32-unknown-unknown
           components: rust-src, clippy
 
+      - name: Init (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/init
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
+
       - name: Install dependencies
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
@@ -161,7 +167,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
-        run: cargo test --no-default-features --features contract --test contract
+        run: cargo test --release --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
@@ -198,4 +204,4 @@ jobs:
           protoc --version
 
       - name: Run integration tests
-        run: cargo test --no-default-features --features parachain --test parachain
+        run: cargo test --release --no-default-features --features parachain --test parachain

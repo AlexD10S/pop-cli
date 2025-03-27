@@ -21,6 +21,9 @@ runs:
         sudo rm -rf /opt/ghc
         sudo rm -rf "/usr/local/share/boost"
         sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        sudo docker system prune -af || true
+        rm -rf ~/.cargo/registry || true
+        rm -rf ~/.cargo/git || true
 
     - name: Setup git config
       shell: bash
