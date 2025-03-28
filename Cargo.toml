@@ -49,7 +49,7 @@ subxt-signer = { version = "0.38.1", features = ["subxt", "sr25519"] }
 subxt = "0.38.1"
 ink_env = { version = "5.0.0" }
 ink_env_v6 = { git = "https://github.com/use-ink/ink", package = "ink_env", branch = "master" }
-sp-core = { version = "35.0.0" }
+sp-core = { version = "32.0.0" }
 sp-core_inkv6 = { git = "https://github.com/paritytech/polkadot-sdk", package = "sp-core", rev = "f8c90b2a01ec77579bccd21ae17bd6ff2eeffd6a", default-features = false }
 sp-weights = { version = "31.0.0" }
 sp-weights_inkv6 = { git = "https://github.com/paritytech/polkadot-sdk", package = "sp-weights", rev = "f8c90b2a01ec77579bccd21ae17bd6ff2eeffd6a", default-features = false }
