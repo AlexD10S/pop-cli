@@ -84,8 +84,8 @@ jobs:
   unit-tests:
     needs: lint
     strategy:
-    matrix:
-      crate: [pop-cli, pop-contracts, pop-parachains, pop-common, pop-telemetry]
+      matrix:
+        crate: [pop-cli, pop-contracts, pop-parachains, pop-common, pop-telemetry]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
