@@ -9,6 +9,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   GITHUB_ACTOR: pop-cli
+  CARGO_INCREMENTAL: 0
+  CARGO_TARGET_DIR: target
 
 jobs:
   lint:
@@ -44,7 +46,7 @@ jobs:
         run: cargo check --no-default-features --features parachain
 
       - name: Build default features
-        run: cargo build
+        run: cargo build --release
 
   clippy:
     needs: lint
@@ -90,7 +92,7 @@ jobs:
           git-user: ${{ env.GITHUB_ACTOR }}
 
       - name: Run unit tests
-        run: cargo test --lib --bins
+        run: cargo test --release --lib --bins
 
   coverage:
     needs: lint
@@ -106,7 +108,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate code coverage
-        run: cargo llvm-cov --all-features --workspace --lib --bins --codecov --output-path codecov.json
+        run: cargo llvm-cov --release --all-features --workspace --lib --bins --codecov --output-path codecov.json
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v4
@@ -147,6 +149,12 @@ jobs:
           target: wasm32-unknown-unknown
           components: rust-src, clippy
 
+      - name: Init (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/init
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
+
       - name: Install dependencies
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
@@ -161,7 +169,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
-        run: cargo test --no-default-features --features contract --test contract
+        run: cargo test --release --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
@@ -182,9 +190,6 @@ jobs:
           target: wasm32-unknown-unknown
           components: rust-src, clippy
 
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-
       - name: Install packages (Linux)
         if: matrix.os == 'ubuntu-latest'
         uses: "./.github/actions/init"
@@ -197,5 +202,8 @@ jobs:
           brew install protobuf
           protoc --version
 
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Run integration tests
-        run: cargo test --no-default-features --features parachain --test parachain
+        run: cargo test --release --no-default-features --features parachain --test parachain

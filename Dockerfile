@@ -1,14 +1,16 @@
-FROM rust as builder
-RUN apt-get update && apt-get -y install cmake \
-    && apt-get install -y clang \
-    && apt-get install --no-install-recommends --assume-yes protobuf-compiler
-WORKDIR /pop
-COPY . /pop
-RUN rustup show active-toolchain || rustup toolchain install
-RUN cargo build --release
+FROM rust AS builder
 
-# Build image, preinstalling all dependencies for general Polkadot development
-FROM rust:slim
+RUN apt-get update && \
+    apt-get install -y cmake clang protobuf-compiler && \
+    rustup component add rust-src
+
+# CLEAN: Remove cache and unnecessary files after building
+RUN cargo build --release && \
+    rm -rf ~/.cargo/registry ~/.cargo/git /usr/local/cargo /usr/lib/jvm && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Final image
+FROM debian:stable-slim
 COPY --from=builder /pop/target/release/pop /usr/bin/pop
-RUN apt-get update && pop install -y && apt-get clean
 CMD ["/usr/bin/pop"]
