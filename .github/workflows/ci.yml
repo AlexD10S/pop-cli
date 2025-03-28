@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_TARGET_DIR: /ci-cache/${{ github.repository }}/target
   GITHUB_ACTOR: pop-cli
 
 jobs:

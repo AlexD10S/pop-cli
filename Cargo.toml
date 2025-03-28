@@ -45,11 +45,11 @@ tokio = { version = "1.0", features = ["macros", "process", "rt-multi-thread"] }
 url = "2.5.4"
 
 # contracts
-subxt-signer = { version = "0.38.0", features = ["subxt", "sr25519"] }
-subxt = "0.38.0"
+subxt-signer = { version = "0.38.1", features = ["subxt", "sr25519"] }
+subxt = "0.38.1"
 ink_env = { version = "5.0.0" }
 ink_env_v6 = { git = "https://github.com/use-ink/ink", package = "ink_env", branch = "master" }
-sp-core = { version = "32.0.0" }
+sp-core = { version = "35.0.0" }
 sp-core_inkv6 = { git = "https://github.com/paritytech/polkadot-sdk", package = "sp-core", rev = "f8c90b2a01ec77579bccd21ae17bd6ff2eeffd6a", default-features = false }
 sp-weights = { version = "31.0.0" }
 sp-weights_inkv6 = { git = "https://github.com/paritytech/polkadot-sdk", package = "sp-weights", rev = "f8c90b2a01ec77579bccd21ae17bd6ff2eeffd6a", default-features = false }
@@ -78,11 +78,11 @@ zombienet-sdk = "0.2.26"
 git2_credentials = "0.13.0"
 
 # benchmarking
-cumulus-primitives-proof-size-hostfunction = "0.10.0"
+cumulus-primitives-proof-size-hostfunction = "0.11.0"
 frame-benchmarking-cli = "46.0.0"
 sc-chain-spec = "41.0.0"
 sp-runtime = "40.0.1"
-sp-statement-store = "15.0.0"
+sp-statement-store = "19.0.0"
 
 # pop-cli
 clap = { version = "4.5", features = ["derive"] }
