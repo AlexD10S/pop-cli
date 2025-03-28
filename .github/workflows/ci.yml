@@ -83,6 +83,9 @@ jobs:
 
   unit-tests:
     needs: lint
+    strategy:
+    matrix:
+      crate: [pop-cli, pop-contracts, pop-parachains, pop-common, pop-telemetry]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,8 +94,24 @@ jobs:
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
-      - name: Run unit tests
-        run: cargo test --lib --bins
+      - name: Run unit tests for ${{ matrix.crate }}
+        run: cargo test --lib --bins -p ${{ matrix.crate }}
+
+  unit-tests-polkavm:
+    needs: lint
+    strategy:
+      matrix:
+        crate: [pop-cli, pop-contracts]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: "./.github/actions/init"
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
+
+      - name: Run unit tests with polkavm-contracts for ${{ matrix.crate }}
+        run: cargo test --lib --bins --locked --no-default-features --features polkavm-contracts -p ${{ matrix.crate }}
 
   coverage:
     needs: lint
@@ -164,6 +183,41 @@ jobs:
 
       - name: Run integration tests
         run: cargo test --no-default-features --features contract --test contract
+
+  contracts-polkavm-integration-tests:
+    needs: lint
+    strategy:
+      matrix:
+        os: ["ubuntu-latest", "macos-latest"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+          target: wasm32-unknown-unknown
+          components: rust-src, clippy
+
+      - name: Install dependencies
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y protobuf-compiler
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install protobuf
+          fi
+          protoc --version
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run integration tests (polkavm)
+        run: cargo test --no-default-features --features polkavm-contracts --test contract
 
   parachain-integration-tests:
     needs: lint

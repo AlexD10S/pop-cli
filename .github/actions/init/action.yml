@@ -24,8 +24,6 @@ runs:
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /usr/lib/jvm
         sudo docker system prune -af || true
-        sudo rm -rf ~/.cargo/git ~/.cargo/registry target || true
-        df -h
 
     - name: Setup git config
       shell: bash
@@ -34,7 +32,7 @@ runs:
         git config --global user.email ${{ inputs.git-user }}@users.noreply.github.com
 
     - name: Rust Cache
-      uses: Swatinem/rust-cache@v2.7.3
+      uses: Swatinem/rust-cache@v2
       with:
         cache-on-failure: true
         cache-all-crates: true
