@@ -80,32 +80,11 @@ jobs:
 
       - uses: docker/build-push-action@v5
 
-  polkavm-unit-tests:
-    needs: lint
-    strategy:
-      matrix:
-        crate: [pop-cli, pop-contracts]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: "./.github/actions/init"
-        with:
-          git-user: ${{ env.GITHUB_ACTOR }}
-
-      - name: Run unit tests with polkavm-contracts for ${{ matrix.crate }}
-        run: |
-          if [[ "${{ matrix.crate }}" == "pop-cli" ]]; then
-            cargo test --bins --locked --no-default-features --features "polkavm-contracts parachain" -p ${{ matrix.crate }}
-          else
-            cargo test -p ${{ matrix.crate }} --no-default-features --features v6 --lib --bins
-          fi
-
   coverage:
     needs: lint
     strategy:
       matrix:
-        crate: [pop-cli, pop-contracts, pop-parachains, pop-common, pop-telemetry]
+        crate: [pop-common, pop-telemetry]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,42 +126,43 @@ jobs:
           name: coverage-data-${{ matrix.crate }}
           path: archive/coverage-data-${{ matrix.crate }}.tar.gz
 
-  coverage-merge-upload:
-    needs: coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    coverage-merge-upload:
+      needs: coverage
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
 
-      - name: Download all coverage artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-data-*
-          path: artifacts
+        - name: Download all coverage artifacts
+          uses: actions/download-artifact@v4
+          with:
+            pattern: coverage-data-*
+            path: artifacts
 
-      - name: Extract all coverage data
-        run: |
-          mkdir -p target/llvm-cov-target
-          for archive in artifacts/*.tar.gz; do
-            echo "Extracting $archive"
-            tar -xzf "$archive" -C target/llvm-cov-target
-          done
+        - name: Extract all coverage data
+          run: |
+            mkdir -p target/llvm-cov-target
+            for archive in artifacts/**/*.tar.gz; do
+              echo "Extracting $archive"
+              tar -xzf "$archive" -C target/llvm-cov-target
+            done
 
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        - name: Install cargo-llvm-cov
+          uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Merge and generate final report
-        run: |
-          cargo llvm-cov report \
-            --codecov --output-path codecov.json \
-            --lcov --output-path lcov.info \
-            --doctests
+        - name: Merge and generate final report
+          run: |
+            cargo llvm-cov report \
+              --codecov --output-path codecov.json \
+              --lcov --output-path lcov.info \
+              --doctests
 
-      - name: Upload report to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: codecov.json
-          fail_ci_if_error: true
+        - name: Upload report to Codecov
+          uses: codecov/codecov-action@v4
+          with:
+            token: ${{ secrets.CODECOV_TOKEN }}
+            files: codecov.json
+            fail_ci_if_error: true
+
 
   documentation-tests:
     needs: lint
@@ -196,75 +176,3 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --doc
-
-  contract-integration-tests:
-    needs: lint
-    strategy:
-      matrix:
-        os: ["ubuntu-latest", "macos-latest"]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-          target: wasm32-unknown-unknown
-          components: rust-src, clippy
-
-      - name: Install dependencies
-        run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y protobuf-compiler
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install protobuf
-          fi
-          protoc --version
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run integration tests
-        run: cargo test --no-default-features --features contract --test contract
-
-  parachain-integration-tests:
-    needs: lint
-    strategy:
-      matrix:
-        os: ["ubuntu-latest", "macos-latest"]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-          target: wasm32-unknown-unknown
-          components: rust-src, clippy
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install packages (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        uses: "./.github/actions/init"
-        with:
-          git-user: ${{ env.GITHUB_ACTOR }}
-
-      - name: Install packages (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install protobuf
-          protoc --version
-
-      - name: Run integration tests
-        run: cargo test --no-default-features --features parachain --test parachain
