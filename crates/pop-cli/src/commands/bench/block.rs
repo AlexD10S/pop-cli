@@ -5,12 +5,12 @@ use crate::{
 	common::{
 		builds::{ensure_node_binary_exists, guide_user_to_select_profile},
 		prompt::display_message,
+		runtime::Feature,
 	},
 };
 use clap::Args;
-use frame_benchmarking_cli::BlockCmd;
 use pop_common::Profile;
-use pop_parachains::{generate_binary_benchmarks, BenchmarkingCliCommand};
+use pop_parachains::{bench::BlockCmd, generate_binary_benchmarks, BenchmarkingCliCommand};
 use std::{
 	env::current_dir,
 	path::{Path, PathBuf},
@@ -47,7 +47,7 @@ impl BenchmarkBlock {
 			cli,
 			target_path,
 			self.profile.as_ref().ok_or_else(|| anyhow::anyhow!("No profile provided"))?,
-			vec!["runtime-benchmarks"],
+			vec![Feature::Benchmark.as_ref()],
 		)?;
 
 		cli.warning("NOTE: this may take some time...")?;
@@ -72,12 +72,18 @@ impl BenchmarkBlock {
 	fn display(&self) -> String {
 		let mut args = vec!["pop bench block".to_string()];
 		let mut arguments: Vec<String> = std::env::args().skip(3).collect();
-		if let Some(ref profile) = self.profile {
-			arguments.push(format!("--profile={}", profile));
+		if !argument_exists(&arguments, "--profile") {
+			if let Some(ref profile) = self.profile {
+				arguments.push(format!("--profile={}", profile));
+			}
 		}
 		args.extend(arguments);
 		args.join(" ")
 	}
+}
+
+fn argument_exists(args: &[String], arg: &str) -> bool {
+	args.iter().any(|a| a.contains(arg))
 }
 
 #[cfg(test)]
@@ -85,12 +91,11 @@ mod tests {
 	use crate::cli::MockCli;
 	use clap::Parser;
 	use duct::cmd;
-	use frame_benchmarking_cli::BlockCmd;
 	use pop_common::Profile;
 	use std::fs::{self, File};
 	use tempfile::tempdir;
 
-	use super::BenchmarkBlock;
+	use super::*;
 
 	#[test]
 	fn benchmark_block_works() -> anyhow::Result<()> {

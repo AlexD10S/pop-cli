@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 
 #![doc = include_str!("../README.md")]
-mod bench;
+
+/// Provides functionality for benchmarking.
+pub mod bench;
 mod build;
 /// Provides functionality to construct, encode, sign, and submit chain extrinsics.
 mod call;
@@ -13,6 +15,8 @@ mod new_pallet;
 mod new_parachain;
 mod relay;
 mod templates;
+/// Provides functionality for testing runtime upgrades.
+pub mod try_runtime;
 mod up;
 mod utils;
 
@@ -24,8 +28,8 @@ pub use bench::{
 };
 pub use build::{
 	binary_path, build_parachain, build_project, export_wasm_file, generate_genesis_state_file,
-	generate_plain_chain_spec, generate_raw_chain_spec, is_supported,
-	runtime::{Builder, ContainerEngine},
+	generate_plain_chain_spec, generate_raw_chain_spec, is_supported, runtime,
+	runtime::{ContainerEngine, DeterministicBuilder},
 	runtime_binary_path, ChainSpec,
 };
 pub use call::{
@@ -46,6 +50,10 @@ pub use indexmap::IndexSet;
 pub use new_pallet::{create_pallet_template, new_pallet_options::*, TemplatePalletConfig};
 pub use new_parachain::instantiate_template_dir;
 pub use relay::{clear_dmpq, RelayChain, Reserved};
+pub use try_runtime::{
+	binary::*, parse, parse_try_state_string, run_try_runtime, shared_parameters::*, state,
+	try_state_details, try_state_label, upgrade_checks_details, TryRuntimeCliCommand,
+};
 // External export from subxt.
 pub use subxt::{
 	blocks::ExtrinsicEvents,

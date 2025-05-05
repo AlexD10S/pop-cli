@@ -3,19 +3,18 @@
 use crate::{
 	cli::{self, traits::Input},
 	common::{
-		bench::{
-			check_omni_bencher_and_prompt, ensure_runtime_binary_exists,
-			guide_user_to_select_genesis_preset, overwrite_weight_dir_command,
-		},
+		bench::{check_omni_bencher_and_prompt, overwrite_weight_dir_command},
 		builds::guide_user_to_select_profile,
 		prompt::display_message,
+		runtime::{ensure_runtime_binary_exists, guide_user_to_select_genesis_preset, Feature},
 	},
 };
 use clap::{Args, Parser};
 use cliclack::spinner;
-use frame_benchmarking_cli::OverheadCmd;
 use pop_common::Profile;
-use pop_parachains::{generate_omni_bencher_benchmarks, BenchmarkingCliCommand};
+use pop_parachains::{
+	bench::OverheadCmd, generate_omni_bencher_benchmarks, BenchmarkingCliCommand,
+};
 use std::{env::current_dir, path::PathBuf};
 use tempfile::tempdir;
 
@@ -74,7 +73,9 @@ impl BenchmarkOverhead {
 					cli,
 					&current_dir().unwrap_or(PathBuf::from("./")),
 					self.profile.as_ref().ok_or_else(|| anyhow::anyhow!("No profile provided"))?,
+					&[Feature::Benchmark],
 					!self.no_build,
+					false,
 				)?);
 			}
 
@@ -130,12 +131,13 @@ impl BenchmarkOverhead {
 		self.command.params.weight.weight_path = Some(temp_dir.path().to_path_buf());
 
 		let binary_path = check_omni_bencher_and_prompt(cli, self.skip_confirm).await?;
-		generate_omni_bencher_benchmarks(
+		let output = generate_omni_bencher_benchmarks(
 			binary_path.as_path(),
 			BenchmarkingCliCommand::Overhead,
 			self.collect_arguments(),
 			false,
 		)?;
+		println!("{}", output);
 
 		// Restore the original weight path.
 		self.command.params.weight.weight_path = Some(original_weight_path.clone());
@@ -230,7 +232,10 @@ mod tests {
 	use super::*;
 	use crate::{
 		cli::MockCli,
-		common::bench::{get_mock_runtime, EXECUTED_COMMAND_COMMENT},
+		common::{
+			bench::EXECUTED_COMMAND_COMMENT,
+			runtime::{get_mock_runtime, Feature::Benchmark},
+		},
 	};
 	use pop_parachains::get_preset_names;
 	use std::{
@@ -285,7 +290,7 @@ mod tests {
 		let cwd = current_dir().unwrap_or(PathBuf::from("./"));
 		let temp_dir = tempdir()?;
 		let output_path = temp_dir.path().to_str().unwrap();
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let preset_names = get_preset_names(&runtime_path)?
 			.into_iter()
 			.map(|preset| (preset, String::default()))
@@ -348,7 +353,7 @@ mod tests {
 	#[tokio::test]
 	async fn benchmark_overhead_weight_file_works() -> anyhow::Result<()> {
 		let temp_dir = tempdir()?;
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let output_path = temp_dir.path().to_str().unwrap();
 		let preset_names = get_preset_names(&runtime_path)?
 			.into_iter()
@@ -402,7 +407,7 @@ mod tests {
 	#[tokio::test]
 	async fn benchmark_overhead_invalid_weight_path_fails() -> anyhow::Result<()> {
 		let temp_dir = tempdir()?;
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let preset_names = get_preset_names(&runtime_path)?
 			.into_iter()
 			.map(|preset| (preset, String::default()))
@@ -424,7 +429,7 @@ mod tests {
 		let cmd = OverheadCmd::try_parse_from([
 			"",
 			"--runtime",
-			get_mock_runtime(false).to_str().unwrap(),
+			get_mock_runtime(None).to_str().unwrap(),
 			"--weight-path",
 			temp_dir.path().join("weights.rs").to_str().unwrap(),
 		])?;

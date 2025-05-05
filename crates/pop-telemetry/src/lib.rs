@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
+#![doc = include_str!("../README.md")]
+
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,22 +18,30 @@ const ENDPOINT: &str = "https://insights.onpop.io/api/send";
 const WEBSITE_ID: &str = "0cbea0ba-4752-45aa-b3cd-8fd11fa722f7";
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// A telemetry error.
 #[derive(Error, Debug)]
 pub enum TelemetryError {
+	/// A network error occurred.
 	#[error("a reqwest error occurred: {0}")]
 	NetworkError(reqwest::Error),
+	/// An IO error occurred.
 	#[error("io error occurred: {0}")]
 	IO(io::Error),
+	/// The user has opted out and metrics cannot be reported.
 	#[error("opt-out has been set, can not report metrics")]
 	OptedOut,
+	/// The configuration file cannot be found.
 	#[error("unable to find config file")]
 	ConfigFileNotFound,
+	/// The configuration could not be serialized.
 	#[error("serialization failed: {0}")]
 	SerializeFailed(String),
 }
 
+/// A result that represents either success ([`Ok`]) or failure ([`TelemetryError`]).
 pub type Result<T> = std::result::Result<T, TelemetryError>;
 
+/// Anonymous collection of usage metrics.
 #[derive(Debug, Clone)]
 pub struct Telemetry {
 	// Endpoint to the telemetry API.
@@ -44,7 +54,7 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-	/// Create a new Telemetry instance.
+	/// Create a new [Telemetry] instance.
 	///
 	/// parameters:
 	/// `config_path`: the path to the configuration file (used for opt-out checks)
@@ -52,7 +62,7 @@ impl Telemetry {
 		Self::init(ENDPOINT.to_string(), config_path)
 	}
 
-	/// Initialize a new Telemetry instance with parameters.
+	/// Initialize a new [Telemetry] instance with parameters.
 	/// Can be used in tests to provide mock endpoints.
 	/// parameters:
 	/// `endpoint`: the API endpoint that telemetry will call
@@ -117,7 +127,7 @@ impl Telemetry {
 /// There is explicitly no reqwest retries on failure to ensure overhead
 /// stays to a minimum.
 pub async fn record_cli_used(tel: Telemetry) -> Result<()> {
-	let payload = generate_payload("", json!({}));
+	let payload = generate_payload("", "");
 
 	let res = tel.send_json(payload).await;
 	log::debug!("send_cli_used result: {:?}", res);
@@ -128,11 +138,10 @@ pub async fn record_cli_used(tel: Telemetry) -> Result<()> {
 /// Reports what CLI command was called to telemetry.
 ///
 /// parameters:
-/// `command_name`: the name of the command entered (new, up, build, etc)
-/// `data`: the JSON representation of subcommands. This should never include any user inputted
-/// data like a file name.
-pub async fn record_cli_command(tel: Telemetry, command_name: &str, data: Value) -> Result<()> {
-	let payload = generate_payload(command_name, data);
+/// `event`: the name of the event to record (new, up, build, etc)
+/// `data`: additional data to record.
+pub async fn record_cli_command(tel: Telemetry, event: &str, data: &str) -> Result<()> {
+	let payload = generate_payload(event, data);
 
 	let res = tel.send_json(payload).await;
 	log::debug!("send_cli_used result: {:?}", res);
@@ -193,7 +202,7 @@ where
 	Ok(deserialized)
 }
 
-fn generate_payload(event_name: &str, data: Value) -> Value {
+fn generate_payload(event: &str, data: &str) -> Value {
 	json!({
 		"payload": {
 			"hostname": "cli",
@@ -203,7 +212,7 @@ fn generate_payload(event_name: &str, data: Value) -> Value {
 			"title": CARGO_PKG_VERSION,
 			"url": "/",
 			"website": WEBSITE_ID,
-			"name": event_name,
+			"name": event,
 			"data": data
 		},
 		"type": "event"
@@ -215,7 +224,6 @@ mod tests {
 
 	use super::*;
 	use mockito::{Matcher, Mock, Server};
-	use serde_json::json;
 	use tempfile::TempDir;
 
 	fn create_temp_config(temp_dir: &TempDir) -> Result<PathBuf> {
@@ -311,7 +319,7 @@ mod tests {
 		let temp_dir = TempDir::new().unwrap();
 		let config_path = temp_dir.path().join("config.json");
 
-		let expected_payload = generate_payload("", json!({})).to_string();
+		let expected_payload = generate_payload("", "").to_string();
 
 		let mock = default_mock(&mut mock_server, expected_payload).await;
 
@@ -336,14 +344,14 @@ mod tests {
 
 		let config_path = temp_dir.path().join("config.json");
 
-		let expected_payload = generate_payload("new", json!("parachain")).to_string();
+		let expected_payload = generate_payload("new", "parachain").to_string();
 
 		let mock = default_mock(&mut mock_server, expected_payload).await;
 
 		let mut tel = Telemetry::init(endpoint.clone(), &config_path);
 		tel.opt_out = false; // override as endpoint is mocked
 
-		record_cli_command(tel, "new", json!("parachain")).await?;
+		record_cli_command(tel, "new", "parachain").await?;
 		mock.assert_async().await;
 		Ok(())
 	}
@@ -364,7 +372,7 @@ mod tests {
 		assert!(matches!(tel.send_json(Value::Null).await, Err(TelemetryError::OptedOut)));
 		assert!(matches!(record_cli_used(tel.clone()).await, Err(TelemetryError::OptedOut)));
 		assert!(matches!(
-			record_cli_command(tel.clone(), "foo", Value::Null).await,
+			record_cli_command(tel.clone(), "foo", "").await,
 			Err(TelemetryError::OptedOut)
 		));
 		mock.assert_async().await;

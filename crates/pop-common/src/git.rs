@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::{errors::Error, polkadot_sdk::parse_latest_tag, APP_USER_AGENT};
+use crate::{api::ApiClient, errors::Error, polkadot_sdk::parse_latest_tag};
 use anyhow::Result;
 use git2::{
 	build::RepoBuilder, FetchOptions, IndexAddOption, RemoteCallbacks, Repository as GitRepository,
 	ResetType,
 };
 use git2_credentials::CredentialHandler;
-use std::{fs, path::Path};
+use std::{fs, path::Path, sync::LazyLock};
 use url::Url;
 
 /// A helper for handling Git operations.
 pub struct Git;
 impl Git {
+	/// Clone a Git repository.
+	///
+	/// # Arguments
+	/// * `url` - the URL of the repository to clone.
+	/// * `working_dir` - the target working directory.
+	/// * `reference` - an optional reference (revision/tag).
 	pub fn clone(url: &Url, working_dir: &Path, reference: Option<&str>) -> Result<()> {
 		let mut fo = FetchOptions::new();
 		if reference.is_none() {
@@ -29,8 +35,12 @@ impl Git {
 		};
 
 		if let Some(reference) = reference {
-			let object = repo.revparse_single(reference).expect("Object not found");
-			repo.checkout_tree(&object, None).expect("Failed to checkout");
+			let object = repo
+				.revparse_single(reference)
+				.or_else(|_| repo.revparse_single(&format!("refs/tags/{}", reference)))
+				.or_else(|_| repo.revparse_single(&format!("refs/remotes/origin/{}", reference)))?;
+			repo.checkout_tree(&object, None)?;
+			repo.set_head_detached(object.id())?;
 		}
 		Ok(())
 	}
@@ -60,8 +70,7 @@ impl Git {
 	) -> Result<Option<String>> {
 		let repo = match GitRepository::clone(url, target) {
 			Ok(repo) => repo,
-			Err(_e) =>
-				Self::ssh_clone_and_degit(url::Url::parse(url).map_err(Error::from)?, target)?,
+			Err(_e) => Self::ssh_clone_and_degit(Url::parse(url).map_err(Error::from)?, target)?,
 		};
 
 		if let Some(tag_version) = tag_version {
@@ -145,9 +154,18 @@ impl Git {
 	}
 }
 
+/// A client for the GitHub REST API.
+pub(crate) static GITHUB_API_CLIENT: LazyLock<ApiClient> = LazyLock::new(|| {
+	// GitHub API: unauthenticated = 60 requests per hour, authenticated = 5,000 requests per hour,
+	// GitHub Actions = 1,000 requests per hour per repository
+	ApiClient::new(1, std::env::var("GITHUB_TOKEN").ok())
+});
+
 /// A helper for handling GitHub operations.
 pub struct GitHub {
+	/// The organization name.
 	pub org: String,
+	/// The repository name
 	pub name: String,
 	api: String,
 }
@@ -162,11 +180,16 @@ impl GitHub {
 	/// * `url` - the URL of the repository to clone.
 	pub fn parse(url: &str) -> Result<Self> {
 		let url = Url::parse(url)?;
-		Ok(Self {
-			org: Self::org(&url)?.into(),
-			name: Self::name(&url)?.into(),
-			api: "https://api.github.com".into(),
-		})
+		Ok(Self::new(Self::org(&url)?, Self::name(&url)?))
+	}
+
+	/// Create a new [GitHub] instance.
+	///
+	/// # Arguments
+	/// * `org` - The organization name.
+	/// * `name` - The repository name.
+	pub(crate) fn new(org: impl Into<String>, name: impl Into<String>) -> Self {
+		Self { org: org.into(), name: name.into(), api: "https://api.github.com".into() }
 	}
 
 	// Overrides the api base url for testing
@@ -178,24 +201,18 @@ impl GitHub {
 
 	/// Fetch the latest releases of the GitHub repository.
 	pub async fn releases(&self) -> Result<Vec<Release>> {
-		let client = reqwest::ClientBuilder::new().user_agent(APP_USER_AGENT).build()?;
 		let url = self.api_releases_url();
-		let response = client.get(url).send().await?.error_for_status()?;
-		let mut sorted_releases = response.json::<Vec<Release>>().await?;
+		let response = GITHUB_API_CLIENT.get(url).await?;
+		let mut releases = response.json::<Vec<Release>>().await?;
 
 		// Sort releases by `published_at` in descending order
-		sorted_releases.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-		Ok(sorted_releases)
+		releases.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+		Ok(releases)
 	}
 
 	/// Retrieves the commit hash associated with a specified tag in a GitHub repository.
 	pub async fn get_commit_sha_from_release(&self, tag_name: &str) -> Result<String> {
-		let client = reqwest::ClientBuilder::new().user_agent(APP_USER_AGENT).build()?;
-		let response = client
-			.get(self.api_tag_information(tag_name))
-			.send()
-			.await?
-			.error_for_status()?;
+		let response = GITHUB_API_CLIENT.get(self.api_tag_information(tag_name)).await?;
 		let value = response.json::<serde_json::Value>().await?;
 		let commit = value
 			.get("object")
@@ -206,10 +223,10 @@ impl GitHub {
 		Ok(commit)
 	}
 
+	/// Retrieves the license from the repository.
 	pub async fn get_repo_license(&self) -> Result<String> {
-		let client = reqwest::ClientBuilder::new().user_agent(APP_USER_AGENT).build()?;
 		let url = self.api_license_url();
-		let response = client.get(url).send().await?.error_for_status()?;
+		let response = GITHUB_API_CLIENT.get(url).await?;
 		let value = response.json::<serde_json::Value>().await?;
 		let license = value
 			.get("license")
@@ -242,6 +259,10 @@ impl GitHub {
 		))?)
 	}
 
+	/// Determines the name of a repository from a URL.
+	///
+	/// # Arguments
+	/// * `repo` - the URL of the repository.
 	pub fn name(repo: &Url) -> Result<&str> {
 		let path_segments = repo
 			.path_segments()
@@ -265,10 +286,15 @@ impl GitHub {
 /// Represents the data of a GitHub release.
 #[derive(Debug, PartialEq, serde::Deserialize)]
 pub struct Release {
+	/// The name of the tag.
 	pub tag_name: String,
+	/// The name of the release.
 	pub name: String,
+	/// Whether to identify the release as a prerelease or a full release.
 	pub prerelease: bool,
+	/// The commit hash for the release.
 	pub commit: Option<String>,
+	/// When the release was published.
 	pub published_at: String,
 }
 
@@ -284,7 +310,7 @@ pub struct Repository {
 }
 
 impl Repository {
-	/// Parses a url in the form of https://github.com/org/repository?package#tag into its component parts.
+	/// Parses a url in the form of <https://github.com/org/repository?package#tag> into its component parts.
 	///
 	/// # Arguments
 	/// * `url` - The url to be parsed.
@@ -299,7 +325,7 @@ impl Repository {
 
 		let package = match package {
 			Some(b) => b,
-			None => crate::GitHub::name(&url)?,
+			None => GitHub::name(&url)?,
 		}
 		.to_string();
 
@@ -488,7 +514,7 @@ mod tests {
 	#[test]
 	fn test_release_url() -> Result<(), Box<dyn std::error::Error>> {
 		let repo = Url::parse(POLKADOT_SDK)?;
-		let url = GitHub::release(&repo, &format!("polkadot-v1.9.0"), "polkadot");
+		let url = GitHub::release(&repo, "polkadot-v1.9.0", "polkadot");
 		assert_eq!(url, format!("{}/releases/download/polkadot-v1.9.0/polkadot", POLKADOT_SDK));
 		Ok(())
 	}

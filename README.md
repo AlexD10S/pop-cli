@@ -31,7 +31,7 @@ cargo install --locked --git https://github.com/r0gue-io/pop-cli
 ```
 
 > :information_source: For detailed instructions on how to install Pop CLI, please refer to our
-> documentation: https://learn.onpop.io/v/cli/installing-pop-cli
+> documentation: <https://learn.onpop.io/v/cli/installing-pop-cli>
 
 ### Telemetry
 
@@ -95,6 +95,11 @@ Run all tests (unit + integration):
 cargo test
 ```
 
+> Running tests may result in rate limits being exhausted due to the reliance on the GitHub REST API for determining
+> releases. As
+> per <https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#getting-a-higher-rate-limit>, a
+> personal access token can be used via the `GITHUB_TOKEN` environment variable.
+
 ## Acknowledgements
 
 Pop CLI would not be possible without these awesome crates!
@@ -106,6 +111,6 @@ Pop CLI would not be possible without these awesome crates!
 
 ## License
 
-The entire code within this repository is licensed under the [GPLv3](LICENSE).
+The entire code within this repository is licensed under the [GPLv3](./LICENSE).
 
 Please [contact us](https://r0gue.io/contact) if you have questions about the licensing of our products.

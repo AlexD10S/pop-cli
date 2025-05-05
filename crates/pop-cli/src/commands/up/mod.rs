@@ -2,12 +2,18 @@
 
 use crate::{
 	cli::{self, Cli},
-	common::builds::get_project_path,
+	common::{
+		builds::get_project_path,
+		Project::{self, *},
+	},
 };
 use clap::{Args, Subcommand};
-use std::path::PathBuf;
+use std::{
+	fmt::{Display, Formatter, Result},
+	path::PathBuf,
+};
 
-#[cfg(feature = "contract")]
+#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 mod contract;
 #[cfg(feature = "parachain")]
 mod network;
@@ -16,6 +22,7 @@ mod rollup;
 
 /// Arguments for launching or deploying a project.
 #[derive(Args, Clone)]
+#[cfg_attr(test, derive(Default))]
 #[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct UpArgs {
 	/// Path to the project directory.
@@ -32,7 +39,7 @@ pub(crate) struct UpArgs {
 	pub(crate) rollup: rollup::UpCommand,
 
 	#[command(flatten)]
-	#[cfg(feature = "contract")]
+	#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 	pub(crate) contract: contract::UpContractCommand,
 
 	#[command(subcommand)]
@@ -49,16 +56,20 @@ pub(crate) enum Command {
 	#[cfg(feature = "parachain")]
 	/// [DEPRECATED] Launch a local network (will be removed in v0.8.0).
 	#[clap(alias = "p", hide = true)]
+	#[deprecated(since = "0.7.0", note = "will be removed in v0.8.0")]
+	#[allow(rustdoc::broken_intra_doc_links)]
 	Parachain(network::ZombienetCommand),
-	#[cfg(feature = "contract")]
+	#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 	/// [DEPRECATED] Deploy a smart contract (will be removed in v0.8.0).
 	#[clap(alias = "c", hide = true)]
+	#[deprecated(since = "0.7.0", note = "will be removed in v0.8.0")]
+	#[allow(rustdoc::broken_intra_doc_links)]
 	Contract(contract::UpContractCommand),
 }
 
 impl Command {
 	/// Executes the command.
-	pub(crate) async fn execute(args: UpArgs) -> anyhow::Result<&'static str> {
+	pub(crate) async fn execute(args: UpArgs) -> anyhow::Result<Project> {
 		Self::execute_project_deployment(args, &mut Cli).await
 	}
 
@@ -66,47 +77,70 @@ impl Command {
 	async fn execute_project_deployment(
 		args: UpArgs,
 		cli: &mut impl cli::traits::Cli,
-	) -> anyhow::Result<&'static str> {
+	) -> anyhow::Result<Project> {
 		let project_path = get_project_path(args.path.clone(), args.path_pos.clone());
 		// If only contract feature enabled, deploy a contract
-		#[cfg(feature = "contract")]
+		#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 		if pop_contracts::is_supported(project_path.as_deref())? {
 			let mut cmd = args.contract;
 			cmd.path = project_path;
 			cmd.valid = true; // To handle deprecated command, remove in v0.8.0.
 			cmd.execute().await?;
-			return Ok("contract");
+			return Ok(Contract);
 		}
 		#[cfg(feature = "parachain")]
 		if pop_parachains::is_supported(project_path.as_deref())? {
 			let mut cmd = args.rollup;
 			cmd.path = project_path;
 			cmd.execute(cli).await?;
-			return Ok("parachain");
+			return Ok(Chain);
 		}
 		cli.warning(
 			"No contract or rollup detected. Ensure you are in a valid project directory.",
 		)?;
-		Ok("")
+		Ok(Unknown)
+	}
+}
+
+impl Display for Command {
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+		match self {
+			#[cfg(feature = "parachain")]
+			Command::Network(_) => write!(f, "network"),
+			#[cfg(feature = "parachain")]
+			#[allow(deprecated)]
+			Command::Parachain(_) => write!(f, "chain"),
+			#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
+			#[allow(deprecated)]
+			Command::Contract(_) => write!(f, "contract"),
+		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{contract::UpContractCommand, *};
-	use crate::style::format_url;
+	use super::*;
 	use cli::MockCli;
 	use duct::cmd;
-	use pop_contracts::{mock_build_process, new_environment};
-	use pop_parachains::{instantiate_template_dir, Config, DeploymentProvider, Parachain};
-	use std::env;
-	use strum::VariantArray;
 	use url::Url;
+	#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
+	use {
+		super::contract::UpContractCommand,
+		pop_contracts::{mock_build_process, new_environment},
+		std::env,
+	};
+	#[cfg(feature = "parachain")]
+	use {
+		crate::style::format_url,
+		pop_parachains::{instantiate_template_dir, Config, DeploymentProvider, Parachain},
+		strum::VariantArray,
+	};
 
 	fn create_up_args(project_path: PathBuf) -> anyhow::Result<UpArgs> {
 		Ok(UpArgs {
 			path: Some(project_path),
 			path_pos: None,
+			#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 			contract: UpContractCommand {
 				path: None,
 				constructor: "new".to_string(),
@@ -123,12 +157,14 @@ mod tests {
 				skip_confirm: false,
 				valid: false,
 			},
+			#[cfg(feature = "parachain")]
 			rollup: rollup::UpCommand::default(),
 			command: None,
 		})
 	}
 
 	#[tokio::test]
+	#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 	async fn detects_contract_correctly() -> anyhow::Result<()> {
 		let temp_dir = new_environment("testing")?;
 		let mut current_dir = env::current_dir().expect("Failed to get current directory");
@@ -140,11 +176,12 @@ mod tests {
 		)?;
 		let args = create_up_args(temp_dir.path().join("testing"))?;
 		let mut cli = MockCli::new();
-		assert_eq!(Command::execute_project_deployment(args, &mut cli).await?, "contract");
+		assert_eq!(Command::execute_project_deployment(args, &mut cli).await?, Project::Contract);
 		cli.verify()
 	}
 
 	#[tokio::test]
+	#[cfg(feature = "parachain")]
 	async fn detects_rollup_correctly() -> anyhow::Result<()> {
 		let temp_dir = tempfile::tempdir()?;
 		let name = "rollup";
@@ -179,7 +216,7 @@ mod tests {
 			DeploymentProvider::VARIANTS.len(), // Register
 			None,
 		);
-		assert_eq!(Command::execute_project_deployment(args, &mut cli).await?, "parachain");
+		assert_eq!(Command::execute_project_deployment(args, &mut cli).await?, Chain);
 		cli.verify()
 	}
 
@@ -195,7 +232,18 @@ mod tests {
 		let mut cli = MockCli::new().expect_warning(
 			"No contract or rollup detected. Ensure you are in a valid project directory.",
 		);
-		assert_eq!(Command::execute_project_deployment(args, &mut cli).await?, "");
+		assert_eq!(Command::execute_project_deployment(args, &mut cli).await?, Unknown);
 		cli.verify()
+	}
+
+	#[test]
+	#[allow(deprecated)]
+	fn command_display_works() {
+		#[cfg(feature = "parachain")]
+		assert_eq!(Command::Network(Default::default()).to_string(), "network");
+		#[cfg(feature = "parachain")]
+		assert_eq!(Command::Parachain(Default::default()).to_string(), "chain");
+		#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
+		assert_eq!(Command::Contract(Default::default()).to_string(), "contract");
 	}
 }

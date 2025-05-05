@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use clap::{Args, Subcommand};
+use std::fmt::{Display, Formatter, Result};
 
-#[cfg(feature = "contract")]
+#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 pub mod contract;
 #[cfg(feature = "parachain")]
 pub mod pallet;
 #[cfg(feature = "parachain")]
 pub mod parachain;
 
+/// The possible values from the variants of an enum.
 #[macro_export]
 macro_rules! enum_variants {
 	($e: ty) => {{
@@ -42,7 +44,35 @@ pub enum Command {
 	#[clap(alias = "P")]
 	Pallet(pallet::NewPalletCommand),
 	/// Generate a new smart contract
-	#[cfg(feature = "contract")]
+	#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
 	#[clap(alias = "c")]
 	Contract(contract::NewContractCommand),
+}
+
+impl Display for Command {
+	fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+		match self {
+			#[cfg(feature = "parachain")]
+			Command::Parachain(_) => write!(f, "chain"),
+			#[cfg(feature = "parachain")]
+			Command::Pallet(_) => write!(f, "pallet"),
+			#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
+			Command::Contract(_) => write!(f, "contract"),
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn command_display_works() {
+		#[cfg(feature = "parachain")]
+		assert_eq!(Command::Parachain(Default::default()).to_string(), "chain");
+		#[cfg(feature = "parachain")]
+		assert_eq!(Command::Pallet(Default::default()).to_string(), "pallet");
+		#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
+		assert_eq!(Command::Contract(Default::default()).to_string(), "contract");
+	}
 }

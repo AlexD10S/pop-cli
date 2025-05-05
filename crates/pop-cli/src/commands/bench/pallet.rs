@@ -6,13 +6,13 @@ use crate::{
 		traits::{Confirm, Input, MultiSelect, Select},
 	},
 	common::{
-		bench::{
-			check_omni_bencher_and_prompt, ensure_runtime_binary_exists,
-			guide_user_to_select_genesis_policy, guide_user_to_select_genesis_preset,
-			overwrite_weight_file_command,
-		},
+		bench::{check_omni_bencher_and_prompt, overwrite_weight_file_command},
 		builds::guide_user_to_select_profile,
 		prompt::display_message,
+		runtime::{
+			ensure_runtime_binary_exists, guide_user_to_select_genesis_policy,
+			guide_user_to_select_genesis_preset, Feature,
+		},
 	},
 };
 use clap::Args;
@@ -191,9 +191,9 @@ pub(crate) struct BenchmarkPallet {
 	#[arg(long)]
 	disable_proof_recording: bool,
 
-	/// If set to true, no additional configuration prompts will be shown.
-	#[arg(long = "skip")]
-	skip_configuration: bool,
+	/// If enabled, no prompt will be shown for updating additional parameters.
+	#[arg(long)]
+	skip_parameters: bool,
 
 	/// Automatically source the needed binary required without prompting for confirmation.
 	#[clap(short = 'y', long)]
@@ -242,7 +242,7 @@ impl Default for BenchmarkPallet {
 			worst_case_map_values: 1000000,
 			additional_trie_layers: 2,
 			disable_proof_recording: false,
-			skip_configuration: false,
+			skip_parameters: false,
 			skip_confirm: false,
 			no_build: false,
 			bench_file: None,
@@ -332,9 +332,9 @@ impl BenchmarkPallet {
 			self.update_extrinsics(cli, &mut registry).await?;
 		}
 
-		// Only prompt user to update additional configurations when `skip_configuration` is not
-		// provided.
-		if !self.skip_configuration &&
+		// Only prompt user to update additional parameter configuration when `skip_parameters` is
+		// not provided.
+		if !self.skip_parameters &&
 			cli.confirm("Would you like to update any additional configurations?")
 				.initial_value(false)
 				.interact()?
@@ -459,8 +459,8 @@ impl BenchmarkPallet {
 		let default_values = Self::default();
 		let mut args = vec!["pop".to_string(), "bench".to_string(), "pallet".to_string()];
 		let mut arguments = self.collect_arguments();
-		if self.skip_configuration && self.skip_configuration != default_values.skip_configuration {
-			arguments.push("--skip".to_string());
+		if self.skip_parameters && self.skip_parameters != default_values.skip_parameters {
+			arguments.push("--skip-parameters".to_string());
 		}
 		if self.skip_confirm {
 			arguments.push("-y".to_string());
@@ -670,7 +670,9 @@ impl BenchmarkPallet {
 			cli,
 			&get_current_directory(),
 			&profile,
+			&[Feature::Benchmark],
 			!self.no_build,
+			false,
 		)?);
 		Ok(())
 	}
@@ -1130,7 +1132,7 @@ fn guide_user_to_update_bench_file_path(
 		.interact()?
 	{
 		let input = cli
-			.input("Provide the output path for benchmark parameters")
+			.input("Provide the output path for benchmark parameter values")
 			.required(true)
 			.placeholder(DEFAULT_BENCH_FILE)
 			.default_input(DEFAULT_BENCH_FILE)
@@ -1183,7 +1185,10 @@ mod tests {
 	use super::*;
 	use crate::{
 		cli::MockCli,
-		common::bench::{get_mock_runtime, source_omni_bencher_binary, EXECUTED_COMMAND_COMMENT},
+		common::{
+			bench::{source_omni_bencher_binary, EXECUTED_COMMAND_COMMENT},
+			runtime::{get_mock_runtime, Feature::Benchmark},
+		},
 	};
 	use anyhow::Ok;
 	use pop_common::Profile;
@@ -1201,7 +1206,7 @@ mod tests {
 
 		let cwd = current_dir().unwrap_or(PathBuf::from("./"));
 		let bench_file_path = temp_dir.path().join(DEFAULT_BENCH_FILE);
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let output_path = temp_dir.path().join("weights.rs");
 
 		cli = expect_pallet_benchmarking_intro(cli)
@@ -1240,7 +1245,7 @@ mod tests {
 				true,
 			)
 			.expect_input(
-				"Provide the output path for benchmark parameters",
+				"Provide the output path for benchmark parameter values",
 				bench_file_path.to_str().unwrap().to_string(),
 			)
 			.expect_info(format!(
@@ -1278,10 +1283,10 @@ mod tests {
 		// Prepare the benchmarking parameter files.
 		let bench_file_path = temp_dir.path().join(DEFAULT_BENCH_FILE);
 		let mut cmd = BenchmarkPallet {
-			runtime: Some(get_mock_runtime(true)),
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
 			genesis_builder: Some(GenesisBuilderPolicy::Runtime),
 			genesis_builder_preset: "development".to_string(),
-			skip_configuration: true,
+			skip_parameters: true,
 			pallet: Some("pallet_timestamp".to_string()),
 			extrinsic: Some(ALL_SELECTED.to_string()),
 			output: Some(output_path.clone()),
@@ -1348,9 +1353,9 @@ mod tests {
 			.expect_outro("Benchmark completed successfully!");
 
 		let mut cmd = BenchmarkPallet {
-			skip_configuration: true,
+			skip_parameters: true,
 			skip_confirm: true,
-			runtime: Some(get_mock_runtime(true)),
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
 			genesis_builder: Some(GenesisBuilderPolicy::Runtime),
 			genesis_builder_preset: "development".to_string(),
 			pallet: Some(ALL_SELECTED.to_string()),
@@ -1394,9 +1399,9 @@ mod tests {
 			.expect_outro("Benchmark completed successfully!");
 
 		let mut cmd = BenchmarkPallet {
-			skip_configuration: true,
+			skip_parameters: true,
 			skip_confirm: true,
-			runtime: Some(get_mock_runtime(true)),
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
 			genesis_builder: Some(GenesisBuilderPolicy::Runtime),
 			genesis_builder_preset: "development".to_string(),
 			pallet: Some("pallet_timestamp".to_string()),
@@ -1417,23 +1422,20 @@ mod tests {
 
 	#[tokio::test]
 	async fn list_pallets_works() -> anyhow::Result<()> {
-		for with_benchmark_feature in [true] {
-			let mut cli = MockCli::new()
+		let mut cli = MockCli::new()
 			.expect_intro("Listing available pallets and extrinsics")
 			.expect_warning(
 				"NOTE: the `pop bench pallet` is not yet battle tested - double check the results.",
 			)
 			.expect_outro("All pallets and extrinsics listed!");
-			BenchmarkPallet {
-				list: true,
-				runtime: Some(get_mock_runtime(with_benchmark_feature)),
-				..Default::default()
-			}
-			.execute(&mut cli)
-			.await?;
-			cli.verify()?;
+		BenchmarkPallet {
+			list: true,
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
+			..Default::default()
 		}
-		Ok(())
+		.execute(&mut cli)
+		.await?;
+		cli.verify()
 	}
 
 	#[tokio::test]
@@ -1448,10 +1450,10 @@ mod tests {
 		);
 
 		BenchmarkPallet {
-			runtime: Some(get_mock_runtime(false)),
+			runtime: Some(get_mock_runtime(None)),
 			pallet: Some("pallet_timestamp".to_string()),
 			extrinsic: Some(ALL_SELECTED.to_string()),
-			skip_configuration: true,
+			skip_parameters: true,
 			genesis_builder: Some(GenesisBuilderPolicy::None),
 			..Default::default()
 		}
@@ -1467,10 +1469,10 @@ mod tests {
 		cli = cli.expect_outro_cancel("Failed to run benchmarking: Invalid input: No benchmarks found which match your input.");
 
 		BenchmarkPallet {
-			runtime: Some(get_mock_runtime(true)),
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
 			pallet: Some("unknown_pallet".to_string()),
 			extrinsic: Some(ALL_SELECTED.to_string()),
-			skip_configuration: true,
+			skip_parameters: true,
 			genesis_builder: Some(GenesisBuilderPolicy::None),
 			..Default::default()
 		}
@@ -1577,7 +1579,7 @@ mod tests {
 		let mut registry = get_registry().await?;
 		let mut cmd = BenchmarkPallet {
 			skip_confirm: false,
-			runtime: Some(get_mock_runtime(true)),
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
 			pallet: Some(ALL_SELECTED.to_string()),
 			..Default::default()
 		};
@@ -1601,7 +1603,7 @@ mod tests {
 
 		// No bench file path provided.
 		let mut cli = MockCli::new().expect_confirm(&prompt, true).expect_input(
-			"Provide the output path for benchmark parameters",
+			"Provide the output path for benchmark parameter values",
 			file_path_str.clone(),
 		);
 		assert_eq!(
@@ -1620,7 +1622,7 @@ mod tests {
 
 		// Invalid file extension.
 		let mut cli = MockCli::new().expect_confirm(&prompt, true).expect_input(
-			"Provide the output path for benchmark parameters",
+			"Provide the output path for benchmark parameter values",
 			invalid_file_path.to_str().unwrap().to_string(),
 		);
 		assert_eq!(
@@ -1663,12 +1665,12 @@ mod tests {
 	async fn menu_option_is_disabled_works() -> anyhow::Result<()> {
 		use BenchmarkPalletMenuOption::*;
 		let mut cli = MockCli::new();
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let binary_path = source_omni_bencher_binary(&mut cli, &crate::cache()?, true).await?;
 		let registry = load_pallet_extrinsics(&runtime_path, binary_path.as_path()).await?;
 
 		let cmd = BenchmarkPallet {
-			runtime: Some(get_mock_runtime(false)),
+			runtime: Some(get_mock_runtime(None)),
 			pallet: Some(ALL_SELECTED.to_string()),
 			extrinsic: Some(ALL_SELECTED.to_string()),
 			genesis_builder: Some(GenesisBuilderPolicy::None),
@@ -1691,7 +1693,7 @@ mod tests {
 	fn menu_option_read_command_works() -> anyhow::Result<()> {
 		use BenchmarkPalletMenuOption::*;
 		let cmd = BenchmarkPallet {
-			runtime: Some(get_mock_runtime(false)),
+			runtime: Some(get_mock_runtime(None)),
 			pallet: Some(ALL_SELECTED.to_string()),
 			extrinsic: Some(ALL_SELECTED.to_string()),
 			genesis_builder: Some(GenesisBuilderPolicy::Runtime),
@@ -1701,7 +1703,7 @@ mod tests {
 			(Pallets, "All selected"),
 			(Extrinsics, "All selected"),
 			(ExcludedPallets, ARGUMENT_NO_VALUE),
-			(Runtime, get_mock_runtime(false).to_str().unwrap()),
+			(Runtime, get_mock_runtime(None).to_str().unwrap()),
 			(GenesisBuilder, &GenesisBuilderPolicy::Runtime.to_string()),
 			(GenesisBuilderPreset, "development"),
 			(Steps, "50"),
@@ -1794,7 +1796,7 @@ mod tests {
 	#[tokio::test]
 	async fn ensure_pallet_registry_works() -> anyhow::Result<()> {
 		let mut cli = MockCli::new();
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let cmd = BenchmarkPallet { runtime: Some(runtime_path), ..Default::default() };
 		let mut registry = PalletExtrinsicsRegistry::default();
 
@@ -1829,9 +1831,9 @@ mod tests {
 	#[test]
 	fn get_runtime_works() -> anyhow::Result<()> {
 		assert_eq!(
-			BenchmarkPallet { runtime: Some(get_mock_runtime(false)), ..Default::default() }
+			BenchmarkPallet { runtime: Some(get_mock_runtime(None)), ..Default::default() }
 				.runtime()?,
-			&get_mock_runtime(false)
+			&get_mock_runtime(None)
 		);
 		assert!(matches!(BenchmarkPallet::default().runtime(), Err(message)
 			if message.to_string().contains("No runtime found")
@@ -1929,7 +1931,7 @@ mod tests {
 		let mut cli =
 			MockCli::new().expect_confirm("Would you like to benchmark all pallets?", true);
 		let mut registry = PalletExtrinsicsRegistry::default();
-		BenchmarkPallet { runtime: Some(get_mock_runtime(true)), ..Default::default() }
+		BenchmarkPallet { runtime: Some(get_mock_runtime(Some(Benchmark))), ..Default::default() }
 			.update_pallets(&mut cli, &mut registry)
 			.await?;
 		assert!(!registry.is_empty());
@@ -1996,7 +1998,7 @@ mod tests {
 		// Load pallet registry if the registry is empty.
 		let mut registry = PalletExtrinsicsRegistry::default();
 		BenchmarkPallet {
-			runtime: Some(get_mock_runtime(true)),
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
 			pallet: Some(ALL_SELECTED.to_string()),
 			..Default::default()
 		}
@@ -2036,8 +2038,10 @@ mod tests {
 		);
 
 		// Load pallet registry if the registry is empty.
-		let mut cmd =
-			BenchmarkPallet { runtime: Some(get_mock_runtime(true)), ..Default::default() };
+		let mut cmd = BenchmarkPallet {
+			runtime: Some(get_mock_runtime(Some(Benchmark))),
+			..Default::default()
+		};
 		let mut registry = PalletExtrinsicsRegistry::default();
 		cmd.update_excluded_pallets(&mut cli, &mut registry).await?;
 		assert!(!registry.is_empty());
@@ -2160,7 +2164,7 @@ mod tests {
 	}
 
 	async fn get_registry() -> anyhow::Result<PalletExtrinsicsRegistry> {
-		let runtime_path = get_mock_runtime(true);
+		let runtime_path = get_mock_runtime(Some(Benchmark));
 		let binary_path =
 			source_omni_bencher_binary(&mut MockCli::new(), &crate::cache()?, true).await?;
 		Ok(load_pallet_extrinsics(&runtime_path, binary_path.as_path()).await?)

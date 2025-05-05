@@ -2,13 +2,18 @@ name: ci
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [ opened, synchronize, reopened, ready_for_review ]
 
 env:
   CARGO_TERM_COLOR: always
   GITHUB_ACTOR: pop-cli
+
+concurrency:
+  # Cancel any in-progress jobs for the same pull request
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -30,6 +35,8 @@ jobs:
   build:
     needs: lint
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-Dwarnings"
     steps:
       - uses: actions/checkout@v4
 
@@ -37,10 +44,16 @@ jobs:
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
-      - name: Check Feature Contracts Excl.
-        run: cargo check --no-default-features --features contract
+      - name: Check no default features
+        run: cargo check --no-default-features
 
-      - name: Check Features Parachain Excl.
+      - name: Check contracts feature
+        run: cargo check --no-default-features --features contract
+      
+      - name: Check polkavm-contracts feature
+        run: cargo check --no-default-features --features "polkavm-contracts, v6"
+
+      - name: Check parachain feature
         run: cargo check --no-default-features --features parachain
 
       - name: Build default features
@@ -70,7 +83,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: '--no-default-features'
 
   docker:
     runs-on: ubuntu-latest
@@ -79,9 +96,14 @@ jobs:
 
       - uses: docker/build-push-action@v5
 
-  unit-tests:
+  docs:
     needs: lint
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    env:
+      RUSTDOCFLAGS: "-Dwarnings"
+      RUSTFLAGS: "-Dmissing_docs"
     steps:
       - uses: actions/checkout@v4
 
@@ -89,8 +111,37 @@ jobs:
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
 
+      - name: Check no default features
+        run: cargo doc --no-deps
+
+  unit-tests:
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-Dwarnings"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: "./.github/actions/init"
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
+
+      - name: Run unit tests (no default features)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo test --lib --bins --no-default-features
+
       - name: Run unit tests
-        run: cargo test --lib --bins
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cargo test --lib --bins --no-default-features --features contract
+          cargo test --lib --bins --no-default-features --features parachain
+      
+      - name: Run unit tests with polkavm-contracts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run:  cargo test --lib --bins --no-default-features --features "polkavm-contracts, v6"
 
   coverage:
     needs: lint
@@ -106,7 +157,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate code coverage
-        run: cargo llvm-cov --all-features --workspace --lib --bins --codecov --output-path codecov.json
+        run: cargo llvm-cov --workspace --lib --bins --no-default-features --features "default experimental parachain telemetry v5 wasm-contracts wallet-integration" --codecov --output-path codecov.json
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v4
@@ -132,7 +183,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
+        os: [ "ubuntu-latest", "macos-latest" ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -161,13 +212,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run integration tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo test --no-default-features --features contract --test contract
 
   parachain-integration-tests:
     needs: lint
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
+        os: [ "ubuntu-latest", "macos-latest" ]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -198,4 +251,6 @@ jobs:
           protoc --version
 
       - name: Run integration tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo test --no-default-features --features parachain --test parachain

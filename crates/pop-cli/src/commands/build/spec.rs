@@ -6,19 +6,22 @@ use crate::{
 		traits::{Cli as _, *},
 		Cli,
 	},
-	common::builds::{ensure_node_binary_exists, guide_user_to_select_profile},
+	common::{
+		builds::{ensure_node_binary_exists, guide_user_to_select_profile},
+		runtime::build_deterministic_runtime,
+	},
 	style::style,
 };
 use clap::{Args, ValueEnum};
-use cliclack::{spinner, ProgressBar};
+use cliclack::spinner;
 use pop_common::{manifest::from_path, Profile};
 use pop_parachains::{
 	export_wasm_file, generate_genesis_state_file, generate_plain_chain_spec,
-	generate_raw_chain_spec, is_supported, Builder, ChainSpec, ContainerEngine,
+	generate_raw_chain_spec, is_supported, ChainSpec,
 };
 use std::{
 	env::current_dir,
-	fs::{self, create_dir_all},
+	fs::create_dir_all,
 	path::{Path, PathBuf},
 };
 use strum::{EnumMessage, VariantArray};
@@ -142,9 +145,6 @@ pub struct BuildSpecCommand {
 	/// the necessary directories will be created
 	#[arg(short, long = "output")]
 	pub(crate) output_file: Option<PathBuf>,
-	/// [DEPRECATED] and will be removed in v0.7.0, use `profile`.
-	#[arg(short = 'R', long, conflicts_with = "profile")]
-	pub(crate) release: bool,
 	/// Build profile for the binary to generate the chain specification.
 	#[arg(long, value_enum)]
 	pub(crate) profile: Option<Profile>,
@@ -191,7 +191,7 @@ pub struct BuildSpecCommand {
 
 impl BuildSpecCommand {
 	/// Executes the build spec command.
-	pub(crate) async fn execute(self) -> anyhow::Result<&'static str> {
+	pub(crate) async fn execute(self) -> anyhow::Result<()> {
 		let mut cli = Cli;
 		cli.intro("Generate your chain spec")?;
 		// Checks for appchain project in `./`.
@@ -205,7 +205,7 @@ impl BuildSpecCommand {
 				"🚫 Can't build a specification for target. Maybe not a chain project ?",
 			)?;
 		}
-		Ok("spec")
+		Ok(())
 	}
 
 	/// Configure chain specification requirements by prompting for missing inputs, validating
@@ -220,7 +220,6 @@ impl BuildSpecCommand {
 		let BuildSpecCommand {
 			output_file,
 			profile,
-			release,
 			id,
 			default_bootnode,
 			chain_type,
@@ -362,11 +361,11 @@ impl BuildSpecCommand {
 		};
 
 		// Prompt user for build profile.
-		let mut profile = match profile {
+		let profile = match profile {
 			Some(profile) => profile,
 			None => {
 				let default = Profile::Release;
-				if prompt && !release {
+				if prompt {
 					guide_user_to_select_profile(cli)?
 				} else {
 					default
@@ -469,11 +468,6 @@ impl BuildSpecCommand {
 		} else {
 			DEFAULT_PACKAGE.to_string()
 		};
-
-		if release {
-			cli.warning("NOTE: release flag is deprecated. Use `--profile` instead.")?;
-			profile = Profile::Release;
-		}
 
 		Ok(BuildSpec {
 			output_file,
@@ -579,16 +573,16 @@ impl BuildSpec {
 			self.customize()?;
 			// Deterministic build.
 			if self.deterministic {
-				spinner.set_message("Building deterministic runtime...");
-				let runtime_path =
-					self.build_deterministic_runtime(cli, &spinner).map_err(|e| {
-						anyhow::anyhow!(
-							"Failed to build the deterministic runtime: {}",
-							e.to_string()
-						)
-					})?;
-				let code = fs::read(&runtime_path).map_err(anyhow::Error::from)?;
-				cli.success("Runtime built successfully.")?;
+				let (runtime_path, code) = build_deterministic_runtime(
+					cli,
+					&spinner,
+					&self.package,
+					self.profile.clone(),
+					self.runtime_dir.clone(),
+				)
+				.map_err(|e| {
+					anyhow::anyhow!("Failed to build the deterministic runtime: {}", e.to_string())
+				})?;
 				generated_files
 					.push(format!("Runtime file generated at: {}", &runtime_path.display()));
 				self.update_code(&code)?;
@@ -691,33 +685,6 @@ impl BuildSpec {
 		Ok(())
 	}
 
-	fn build_deterministic_runtime(
-		&self,
-		cli: &mut impl cli::traits::Cli,
-		spinner: &ProgressBar,
-	) -> anyhow::Result<PathBuf> {
-		let engine = ContainerEngine::detect().map_err(|_| anyhow::anyhow!("No container engine detected. A supported containerization solution (Docker or Podman) is required."))?;
-		// Warning from srtool-cli: https://github.com/chevdor/srtool-cli/blob/master/cli/src/main.rs#L28).
-		if engine == ContainerEngine::Docker {
-			cli.warning("WARNING: You are using docker. It is recommend to use podman instead.")?;
-		}
-		spinner.set_message(
-			"NOTE: This process may take longer than 10-15 minutes. Please be patient...",
-		);
-		let builder = Builder::new(
-			engine,
-			None,
-			self.package.clone(),
-			self.profile.clone(),
-			self.runtime_dir.clone(),
-		)?;
-		let wasm_path = builder.build()?;
-		if !wasm_path.exists() {
-			return Err(anyhow::anyhow!("Can't find the generated runtime at {:?}", wasm_path));
-		}
-		Ok(wasm_path)
-	}
-
 	// Updates the chain specification with the runtime code.
 	fn update_code(&self, bytes: &[u8]) -> anyhow::Result<()> {
 		let mut chain_spec = ChainSpec::from(&self.output_file)?;
@@ -760,7 +727,10 @@ mod tests {
 	use crate::cli::MockCli;
 	use serde_json::json;
 	use sp_core::bytes::from_hex;
-	use std::{fs::create_dir_all, path::PathBuf};
+	use std::{
+		fs::{self, create_dir_all},
+		path::PathBuf,
+	};
 	use tempfile::{tempdir, TempDir};
 
 	#[tokio::test]
@@ -774,7 +744,6 @@ mod tests {
 		let para_id = 4242;
 		let protocol_id = "pop";
 		let relay = Polkadot;
-		let release = false;
 		let profile = Profile::Production;
 		let deterministic = true;
 		let package = "runtime-name";
@@ -787,7 +756,6 @@ mod tests {
 			BuildSpecCommand {
 				output_file: Some(PathBuf::from(output_file)),
 				profile: Some(profile.clone()),
-				release,
 				id: Some(para_id),
 				default_bootnode,
 				chain_type: Some(chain_type.clone()),
@@ -870,7 +838,6 @@ mod tests {
 		let para_id = 4242;
 		let protocol_id = "pop";
 		let relay = Polkadot;
-		let release = false;
 		let profile = Profile::Production;
 		let deterministic = true;
 		let package = "runtime-name";
@@ -893,7 +860,6 @@ mod tests {
 				BuildSpecCommand {
 					output_file: Some(PathBuf::from(output_file)),
 					profile: Some(profile.clone()),
-					release,
 					id: Some(para_id),
 					default_bootnode,
 					chain_type: Some(chain_type.clone()),
@@ -1025,30 +991,6 @@ mod tests {
 				cli.verify()?;
 			}
 		}
-		Ok(())
-	}
-
-	#[tokio::test]
-	async fn configure_build_spec_release_deprecated_works() -> anyhow::Result<()> {
-		// Create a temporary file to act as the existing chain spec file.
-		let temp_dir = tempdir()?;
-		let chain_spec_path = temp_dir.path().join("existing-chain-spec.json");
-		std::fs::write(&chain_spec_path, "{}")?;
-		// Use the deprcrated release flag.
-		let release = true;
-		let build_spec_cmd = BuildSpecCommand {
-			release,
-			chain: Some(chain_spec_path.to_string_lossy().to_string()),
-			..Default::default()
-		};
-		let mut cli =
-			MockCli::new().expect_confirm(
-				"An existing chain spec file is provided. Do you want to make additional changes to it?",
-				false,
-			).expect_warning("NOTE: release flag is deprecated. Use `--profile` instead.");
-		let build_spec = build_spec_cmd.configure_build_spec(&mut cli).await?;
-		assert_eq!(build_spec.profile, release.into());
-		cli.verify()?;
 		Ok(())
 	}
 

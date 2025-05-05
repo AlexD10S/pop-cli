@@ -4,11 +4,15 @@
 pub use pop_common::templates::{Template, Type};
 use strum_macros::{AsRefStr, Display, EnumMessage, EnumProperty, EnumString, VariantArray};
 
+// Temporary branch name for v6 contract templates.
+pub(crate) const V6_CONTRACTS_BRANCH: &str = "v6.x";
+
 /// Supported contract template providers.
 #[derive(
 	AsRefStr, Clone, Default, Debug, Display, EnumMessage, EnumString, Eq, PartialEq, VariantArray,
 )]
 pub enum ContractType {
+	/// Contract examples for ink!.
 	#[default]
 	#[strum(
 		ascii_case_insensitive,
@@ -17,6 +21,7 @@ pub enum ContractType {
 		detailed_message = "Contract examples for ink!."
 	)]
 	Examples,
+	/// ERC-based contracts in ink!.
 	#[strum(
 		ascii_case_insensitive,
 		serialize = "erc",
@@ -24,6 +29,7 @@ pub enum ContractType {
 		detailed_message = "ERC-based contracts in ink!."
 	)]
 	Erc,
+	/// PSP-based contracts in ink!.
 	#[strum(
 		ascii_case_insensitive,
 		serialize = "psp",
@@ -43,6 +49,7 @@ impl Type<Contract> for ContractType {
 	}
 }
 
+/// A smart contract template.
 #[derive(
 	AsRefStr,
 	Clone,
@@ -96,7 +103,7 @@ pub enum Contract {
 		serialize = "PSP22",
 		message = "Psp22",
 		detailed_message = "The implementation of the PSP22 standard in ink!",
-		props(Type = "PSP", Repository = "https://github.com/Cardinal-Cryptography/PSP22")
+		props(Type = "PSP", Repository = "https://github.com/r0gue-io/PSP22")
 	)]
 	PSP22,
 	/// The implementation of the PSP22 standard in ink!
@@ -161,7 +168,7 @@ mod tests {
 			("erc20".to_string(), "https://github.com/use-ink/ink-examples"),
 			("erc721".to_string(), "https://github.com/use-ink/ink-examples"),
 			("erc1155".to_string(), "https://github.com/use-ink/ink-examples"),
-			("PSP22".to_string(), "https://github.com/Cardinal-Cryptography/PSP22"),
+			("PSP22".to_string(), "https://github.com/r0gue-io/PSP22"),
 			("PSP34".to_string(), "https://github.com/r0gue-io/PSP34"),
 			("dns".to_string(), "https://github.com/use-ink/ink-examples"),
 			("cross-contract-calls".to_string(), "https://github.com/use-ink/ink-examples"),
