@@ -13,17 +13,13 @@ defaults:
 jobs:
   arch:
     runs-on: ubuntu-latest
-    container: archlinux:latest
+    container: archlinux:base-devel-20230401.0.137052
     steps:
       - uses: actions/checkout@v4
       - name: Install prerequisites
         run: pacman -Syu --needed --noconfirm cmake curl git base-devel clang protobuf
       - name: Install Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      - name: Patch vendored RocksDB for GCC 13+
-        run: |
-          cargo fetch --locked
-          find ~/.cargo/registry/src -path '*librocksdb-sys-*' -name '*.cc' -exec sed -i '1s/^/#include <cstdint>\n/' {} +
       - name: Install Pop
         run: |
           . "$HOME/.cargo/env"
