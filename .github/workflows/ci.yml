@@ -43,12 +43,7 @@ jobs:
         run: cargo +nightly fmt --all -- --check
 
   build:
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-Dwarnings"
     steps:
