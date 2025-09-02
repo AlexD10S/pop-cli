@@ -73,7 +73,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.platform.target }}
+          name: pop-${{ matrix.platform.target }}${{ matrix.platform.cpu != '' && format('-{0}', matrix.platform.cpu) || '' }}
           path: ${{ env.path }}/${{ env.package }}
 
       - name: Add binary to release
