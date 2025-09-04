@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - fix/ci
   pull_request:
     types:
       - opened
@@ -27,10 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
-
       - name: Install Rust nightly
         uses: actions-rs/toolchain@v1
         with:
@@ -43,15 +40,12 @@ jobs:
         run: cargo +nightly fmt --all -- --check
 
   build:
+    needs: lint
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-Dwarnings"
     steps:
       - uses: actions/checkout@v4
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
 
       - uses: "./.github/actions/init"
         with:
@@ -82,10 +76,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
-
       - uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
@@ -113,10 +103,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
-
       - uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
@@ -131,10 +117,6 @@ jobs:
       RUSTFLAGS: "-Dwarnings"
     steps:
       - uses: actions/checkout@v4
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
 
       - uses: "./.github/actions/init"
         with:
@@ -161,10 +143,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
-
       - uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
@@ -184,10 +162,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
 
       - uses: "./.github/actions/init"
         with:
@@ -212,10 +186,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
-
       - uses: "./.github/actions/init"
         with:
           git-user: ${{ env.GITHUB_ACTOR }}
@@ -234,10 +204,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
-
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -247,14 +213,16 @@ jobs:
           target: wasm32-unknown-unknown
           components: rust-src, clippy
 
-      - name: Install dependencies
+      - name: Install packages (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: "./.github/actions/init"
+        with:
+          git-user: ${{ env.GITHUB_ACTOR }}
+
+      - name: Install packages (macOS)
+        if: matrix.os == 'macos-latest'
         run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y protobuf-compiler
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install protobuf
-          fi
+          brew install protobuf
           protoc --version
 
       - name: Install cargo-nextest
@@ -277,10 +245,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
