@@ -413,6 +413,7 @@ pub(crate) mod tests {
 				)
 			}
 			if !self.info_expectations.is_empty() {
+				println!("DEBUG: {:#?}", self.outro_cancel_expectation);
 				panic!("`{}` info log expectations not satisfied", self.info_expectations.join(","))
 			}
 			if !self.input_expectations.is_empty() {
