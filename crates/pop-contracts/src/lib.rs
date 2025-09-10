@@ -22,6 +22,7 @@ pub use call::{
 	call_smart_contract, call_smart_contract_from_signed_payload, dry_run_call,
 	dry_run_gas_estimate_call, get_call_payload, set_up_call, CallOpts,
 };
+pub use errors::Error;
 pub use new::{create_smart_contract, is_valid_contract_name};
 pub use node::{contracts_node_generator, is_chain_alive, run_contracts_node};
 pub use templates::{Contract, ContractType};
@@ -33,7 +34,9 @@ pub use up::{
 	submit_signed_payload, upload_contract_signed, upload_smart_contract, ContractInfo, UpOpts,
 };
 pub use utils::{
-	metadata::{get_message, get_messages, ContractFunction},
+	metadata::{
+		extract_function, get_message, get_messages, ContractFunction, FunctionType, Param,
+	},
 	parse_hex_bytes,
 };
 // External exports

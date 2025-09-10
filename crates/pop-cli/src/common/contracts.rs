@@ -6,7 +6,7 @@ use crate::{
 	impl_binary_generator,
 };
 use pop_common::{manifest::from_path, sourcing::Binary};
-use pop_contracts::contracts_node_generator;
+use pop_contracts::{contracts_node_generator, ContractFunction};
 use std::{
 	path::{Path, PathBuf},
 	process::{Child, Command},
@@ -46,7 +46,7 @@ pub async fn check_contracts_node_and_prompt(
 /// # Arguments
 /// * `cli`: Command line interface.
 /// * `process`: Tuple identifying the child process to terminate and its log file.
-pub fn terminate_node(
+pub async fn terminate_node(
 	cli: &mut impl Cli,
 	process: Option<(Child, NamedTempFile)>,
 ) -> anyhow::Result<()> {
@@ -65,8 +65,11 @@ pub fn terminate_node(
 			.spawn()?
 			.wait()?;
 	} else {
-		log.keep()?;
-		cli.warning(format!("NOTE: The node is running in the background with process ID {}. Please terminate it manually when done.", process.id()))?;
+		cli.warning("You can terminate the process by pressing Ctrl+C.")?;
+		Command::new("tail").args(["-F", &log.path().to_string_lossy()]).spawn()?;
+		tokio::signal::ctrl_c().await?;
+		cli.plain("\n")?;
+		cli.success("✅ Local node terminated.")?;
 	}
 
 	Ok(())
@@ -87,6 +90,61 @@ pub fn has_contract_been_built(path: Option<&Path>) -> bool {
 		.package
 		.map(|p| project_path.join(format!("target/ink/{}.contract", p.name())).exists())
 		.unwrap_or_default()
+}
+
+/// Requests and collects function arguments from the user via CLI interaction.
+///
+/// # Arguments
+/// * `function` - The contract function containing argument definitions.
+/// * `cli` - Command line interface implementation for user interaction.
+///
+/// # Returns
+/// A vector of strings containing the user-provided argument values.
+pub fn request_contract_function_args(
+	function: &ContractFunction,
+	cli: &mut impl Cli,
+) -> anyhow::Result<Vec<String>> {
+	let mut user_provided_args = Vec::new();
+	for arg in &function.args {
+		let mut input = cli
+			.input(format!("Enter the value for the parameter: {}", arg.label))
+			.placeholder(&format!("Type required: {}", arg.type_name));
+
+		// Set default input only if the parameter type is `Option` (Not mandatory)
+		if arg.type_name.starts_with("Option<") {
+			input = input.default_input("");
+		}
+		user_provided_args.push(input.interact()?);
+	}
+	Ok(user_provided_args)
+}
+
+/// Normalizes contract arguments before execution.
+///
+/// # Arguments
+/// * `args` - The mutable list of argument values provided by the user.
+/// * `function` - The contract function containing argument definitions.
+pub(crate) fn normalize_call_args(args: &mut [String], function: &ContractFunction) {
+	for (arg, param) in args.iter_mut().zip(&function.args) {
+		// If "None" return empty string
+		if param.type_name.starts_with("Option<") && arg == "None" {
+			*arg = "".to_string();
+		}
+		// For `str` params, ensure the value is wrapped in double quotes.
+		else if param.type_name == "str" {
+			*arg = ensure_double_quoted(arg);
+		}
+	}
+}
+
+/// Ensures a string is wrapped in double quotes.
+fn ensure_double_quoted(s: &str) -> String {
+	let trimmed = s.trim();
+	if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+		trimmed.to_string()
+	} else {
+		format!("\"{}\"", trimmed)
+	}
 }
 
 #[cfg(feature = "polkavm-contracts")]
@@ -115,8 +173,13 @@ mod tests {
 	use crate::cli::MockCli;
 	use duct::cmd;
 	use pop_common::{find_free_port, set_executable_permission};
-	use pop_contracts::{is_chain_alive, run_contracts_node};
-	use std::fs::{self, File};
+	use pop_contracts::{
+		extract_function, is_chain_alive, run_contracts_node, FunctionType, Param,
+	};
+	use std::{
+		env,
+		fs::{self, File},
+	};
 	use url::Url;
 
 	#[test]
@@ -138,6 +201,21 @@ mod tests {
 		File::create(contract_path.join(format!("target/ink/{}.contract", name)))?;
 		assert!(has_contract_been_built(Some(&path.join(name))));
 		Ok(())
+	}
+
+	#[tokio::test]
+	async fn request_contract_function_args_works() -> anyhow::Result<()> {
+		let mut current_dir = env::current_dir().expect("Failed to get current directory");
+		current_dir.pop();
+		let mut cli = MockCli::new()
+			.expect_input("Enter the value for the parameter: init_value", "true".into());
+		let function = extract_function(
+			current_dir.join("pop-contracts/tests/files/testing.json"),
+			"new",
+			FunctionType::Constructor,
+		)?;
+		assert_eq!(request_contract_function_args(&function, &mut cli)?, vec!["true"]);
+		cli.verify()
 	}
 
 	#[tokio::test]
@@ -184,8 +262,33 @@ mod tests {
 		// Terminate the process.
 		let mut cli =
 			MockCli::new().expect_confirm("Would you like to terminate the local node?", true);
-		assert!(terminate_node(&mut cli, Some((process, log))).is_ok());
+		assert!(terminate_node(&mut cli, Some((process, log))).await.is_ok());
 		assert_eq!(is_chain_alive(Url::parse(&format!("ws://localhost:{}", port))?).await?, false);
 		cli.verify()
+	}
+
+	#[test]
+	fn normalize_call_args_works() {
+		let function = ContractFunction {
+			label: "test".to_string(),
+			payable: false,
+			args: vec![
+				Param { label: "test_string".to_string(), type_name: "str".to_string() },
+				Param { label: "test_none".to_string(), type_name: "Option<str>".to_string() },
+			],
+			docs: "test".to_string(),
+			default: false,
+			mutates: false,
+		};
+		let mut args = vec!["test".to_string(), "None".to_string()];
+		normalize_call_args(&mut args, &function);
+		assert_eq!(args, vec!["\"test\"", ""]);
+	}
+
+	#[test]
+	fn ensure_double_quoted_works() {
+		assert_eq!(ensure_double_quoted("hello"), "\"hello\"");
+		assert_eq!(ensure_double_quoted("  hello  "), "\"hello\"");
+		assert_eq!(ensure_double_quoted("\"hello\""), "\"hello\"");
 	}
 }

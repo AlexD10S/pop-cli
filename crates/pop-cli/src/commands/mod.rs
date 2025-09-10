@@ -16,8 +16,8 @@ pub(crate) mod build;
 #[cfg(any(feature = "chain", feature = "polkavm-contracts", feature = "wasm-contracts"))]
 pub(crate) mod call;
 pub(crate) mod clean;
-#[cfg(feature = "hashing")]
-mod hash;
+pub(crate) mod convert;
+pub(crate) mod hash;
 #[cfg(any(feature = "chain", feature = "polkavm-contracts", feature = "wasm-contracts"))]
 pub(crate) mod install;
 #[cfg(any(feature = "chain", feature = "polkavm-contracts", feature = "wasm-contracts"))]
@@ -54,11 +54,13 @@ pub(crate) enum Command {
 	Test(test::TestArgs),
 	/// Hash data using a supported hash algorithm.
 	#[clap(alias = "h")]
-	#[cfg(feature = "hashing")]
 	Hash(hash::HashArgs),
 	/// Remove generated/cached artifacts.
 	#[clap(alias = "C")]
 	Clean(clean::CleanArgs),
+	/// Convert between different formats.
+	#[clap(alias = "cv")]
+	Convert(convert::ConvertArgs),
 }
 
 /// Help message for the build command.
@@ -160,7 +162,7 @@ impl Command {
 			))]
 			Self::Call(args) => {
 				env_logger::init();
-				match args.command {
+				match args.resolve_command()? {
 					#[cfg(feature = "chain")]
 					call::Command::Chain(cmd) => cmd.execute().await.map(|_| Null),
 					#[cfg(any(feature = "polkavm-contracts", feature = "wasm-contracts"))]
@@ -223,7 +225,6 @@ impl Command {
 					.await
 					.map(|(project, feature)| Test { project, feature })
 			},
-			#[cfg(feature = "hashing")]
 			Self::Hash(args) => {
 				env_logger::init();
 				args.command.execute(&mut Cli).map(|_| Null)
@@ -242,6 +243,10 @@ impl Command {
 						.map(|_| Null)
 					},
 				}
+			},
+			Command::Convert(args) => {
+				env_logger::init();
+				args.command.execute(&mut Cli).map(|_| Null)
 			},
 		}
 	}
@@ -281,7 +286,10 @@ impl Display for Command {
 				feature = "polkavm-contracts",
 				feature = "wasm-contracts"
 			))]
-			Self::Call(args) => write!(f, "call {}", args.command),
+			Self::Call(args) => match &args.command {
+				Some(cmd) => write!(f, "call {}", cmd),
+				None => write!(f, "call unknown"),
+			},
 			#[cfg(any(
 				feature = "chain",
 				feature = "polkavm-contracts",
@@ -312,8 +320,8 @@ impl Display for Command {
 			Self::Clean(_) => write!(f, "clean"),
 			#[cfg(feature = "chain")]
 			Self::Bench(args) => write!(f, "bench {}", args.command),
-			#[cfg(feature = "hashing")]
 			Command::Hash(args) => write!(f, "hash {}", args.command),
+			Command::Convert(args) => write!(f, "convert {}", args.command),
 		}
 	}
 }
@@ -384,12 +392,14 @@ mod tests {
 			),
 			// Call.
 			(
-				Command::Call(call::CallArgs { command: call::Command::Chain(Default::default()) }),
+				Command::Call(call::CallArgs {
+					command: Some(call::Command::Chain(Default::default())),
+				}),
 				"call chain",
 			),
 			(
 				Command::Call(call::CallArgs {
-					command: call::Command::Contract(Default::default()),
+					command: Some(call::Command::Contract(Default::default())),
 				}),
 				"call contract",
 			),
@@ -426,11 +436,23 @@ mod tests {
 		}
 	}
 
-	#[cfg(feature = "hashing")]
 	#[test]
 	fn hash_command_display_works() {
 		use hash::{Command::*, Data, HashArgs};
 		let command = Blake2 { length: 256, data: Data::default(), concat: false };
 		assert_eq!(format!("hash {command}"), Command::Hash(HashArgs { command }).to_string());
+	}
+
+	#[test]
+	fn convert_command_display_works() {
+		use convert::{Command::*, ConvertArgs};
+		let command = Address {
+			address: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e".to_string(),
+			prefix: None,
+		};
+		assert_eq!(
+			format!("convert {command}"),
+			Command::Convert(ConvertArgs { command }).to_string()
+		);
 	}
 }

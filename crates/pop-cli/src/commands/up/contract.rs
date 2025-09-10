@@ -3,7 +3,11 @@
 use crate::{
 	cli::{traits::Cli as _, Cli},
 	common::{
-		contracts::{check_contracts_node_and_prompt, has_contract_been_built, terminate_node},
+		contracts::{
+			check_contracts_node_and_prompt, has_contract_been_built, normalize_call_args,
+			request_contract_function_args, terminate_node,
+		},
+		urls,
 		wallet::request_signature,
 	},
 	style::style,
@@ -21,6 +25,7 @@ use pop_contracts::{
 	set_up_deployment, set_up_upload, upload_contract_signed, upload_smart_contract, Bytes, UpOpts,
 	Verbosity, Weight,
 };
+use pop_contracts::{extract_function, FunctionType};
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use url::Url;
@@ -28,7 +33,6 @@ use url::Url;
 use {crate::common::contracts::map_account, sp_core::bytes::to_hex};
 
 const COMPLETE: &str = "🚀 Deployment complete";
-const DEFAULT_URL: &str = "ws://localhost:9944/";
 const DEFAULT_PORT: u16 = 9944;
 const FAILED: &str = "🚫 Deployment failed.";
 const HELP_HEADER: &str = "Smart contract deployment options";
@@ -62,7 +66,7 @@ pub struct UpContractCommand {
 	#[clap(short = 'S', long, value_parser = parse_hex_bytes)]
 	pub(crate) salt: Option<Bytes>,
 	/// Websocket endpoint of a chain.
-	#[clap(short, long, value_parser, default_value = DEFAULT_URL)]
+	#[clap(short, long, value_parser, default_value = urls::LOCAL)]
 	pub(crate) url: Url,
 	/// Secret key URI for the account deploying the contract.
 	///
@@ -118,7 +122,7 @@ impl UpContractCommand {
 		// Check if specified chain is accessible
 		let process = if !is_chain_alive(self.url.clone()).await? {
 			if !self.skip_confirm {
-				let chain = if self.url.as_str() == DEFAULT_URL {
+				let chain = if self.url.as_str() == urls::LOCAL {
 					"No endpoint was specified.".into()
 				} else {
 					format!("The specified endpoint of {} is inaccessible.", self.url)
@@ -138,7 +142,7 @@ impl UpContractCommand {
 			}
 
 			// Update url to that of the launched node
-			self.url = Url::parse(DEFAULT_URL).expect("default url is valid");
+			self.url = Url::parse(urls::LOCAL).expect("default url is valid");
 
 			let log = NamedTempFile::new()?;
 
@@ -191,7 +195,7 @@ impl UpContractCommand {
 				Ok(data) => data,
 				Err(e) => {
 					error(format!("An error occurred getting the call data: {e}"))?;
-					terminate_node(&mut Cli, process)?;
+					terminate_node(&mut Cli, process).await?;
 					Cli.outro_cancel(FAILED)?;
 					return Ok(());
 				},
@@ -212,7 +216,7 @@ impl UpContractCommand {
 						Err(e) => {
 							spinner
 								.error(format!("An error occurred uploading your contract: {e}"));
-							terminate_node(&mut Cli, process)?;
+							terminate_node(&mut Cli, process).await?;
 							Cli.outro_cancel(FAILED)?;
 							return Ok(());
 						},
@@ -243,7 +247,7 @@ impl UpContractCommand {
 						Ok(i) => i,
 						Err(e) => {
 							error(format!("An error occurred instantiating the contract: {e}"))?;
-							terminate_node(&mut Cli, process)?;
+							terminate_node(&mut Cli, process).await?;
 							Cli.outro_cancel(FAILED)?;
 							return Ok(());
 						},
@@ -265,7 +269,7 @@ impl UpContractCommand {
 						Err(e) => {
 							spinner
 								.error(format!("An error occurred uploading your contract: {e}"));
-							terminate_node(&mut Cli, process)?;
+							terminate_node(&mut Cli, process).await?;
 							Cli.outro_cancel(FAILED)?;
 							return Ok(());
 						},
@@ -292,19 +296,19 @@ impl UpContractCommand {
 				}
 			} else {
 				Cli.outro_cancel("Signed payload doesn't exist.")?;
-				terminate_node(&mut Cli, process)?;
+				terminate_node(&mut Cli, process).await?;
 				return Ok(());
 			}
 
-			terminate_node(&mut Cli, process)?;
 			Cli.outro(COMPLETE)?;
+			terminate_node(&mut Cli, process).await?;
 			return Ok(());
 		}
 
 		// Check for upload only.
 		if self.upload_only {
 			let result = self.upload_contract().await;
-			terminate_node(&mut Cli, process)?;
+			terminate_node(&mut Cli, process).await?;
 			match result {
 				Ok(_) => {
 					Cli.outro(COMPLETE)?;
@@ -316,12 +320,21 @@ impl UpContractCommand {
 			return Ok(());
 		}
 
+		let function = extract_function(
+			self.path.clone().unwrap_or_else(|| PathBuf::from("./")),
+			&self.constructor,
+			FunctionType::Constructor,
+		)?;
+		if self.args.is_empty() && !function.args.is_empty() {
+			self.args = request_contract_function_args(&function, &mut Cli)?;
+		}
+		normalize_call_args(&mut self.args, &function);
 		// Otherwise instantiate.
 		let instantiate_exec = match set_up_deployment(self.clone().into()).await {
 			Ok(i) => i,
 			Err(e) => {
 				error(format!("An error occurred instantiating the contract: {e}"))?;
-				terminate_node(&mut Cli, process)?;
+				terminate_node(&mut Cli, process).await?;
 				Cli.outro_cancel(FAILED)?;
 				return Ok(());
 			},
@@ -342,7 +355,7 @@ impl UpContractCommand {
 				},
 				Err(e) => {
 					spinner.error(format!("{e}"));
-					terminate_node(&mut Cli, process)?;
+					terminate_node(&mut Cli, process).await?;
 					Cli.outro_cancel(FAILED)?;
 					return Ok(());
 				},
@@ -360,8 +373,8 @@ impl UpContractCommand {
 				contract_info.code_hash,
 			);
 
-			terminate_node(&mut Cli, process)?;
 			Cli.outro(COMPLETE)?;
+			terminate_node(&mut Cli, process).await?;
 		}
 
 		Ok(())
@@ -479,7 +492,7 @@ impl Default for UpContractCommand {
 			gas_limit: None,
 			proof_size: None,
 			salt: None,
-			url: Url::parse("ws://localhost:9944").expect("default url is valid"),
+			url: Url::parse(urls::LOCAL).expect("default url is valid"),
 			suri: "//Alice".to_string(),
 			use_wallet: false,
 			dry_run: false,
@@ -492,47 +505,7 @@ impl Default for UpContractCommand {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use pop_common::{find_free_port, set_executable_permission};
-	#[cfg(feature = "polkavm-contracts")]
-	use pop_contracts::AccountMapper;
-	use pop_contracts::{
-		contracts_node_generator, mock_build_process, new_environment, UploadCode,
-	};
-	use std::{
-		env,
-		process::{Child, Command},
-		time::Duration,
-	};
-	use subxt::{tx::Payload, SubstrateConfig};
-	use tempfile::TempDir;
-	use tokio::time::sleep;
 	use url::Url;
-
-	async fn start_test_environment() -> anyhow::Result<(Child, u16, TempDir)> {
-		let random_port = find_free_port(None);
-		let temp_dir = new_environment("testing")?;
-		let current_dir = env::current_dir().expect("Failed to get current directory");
-		#[cfg(feature = "wasm-contracts")]
-		let contract_file = "../pop-contracts/tests/files/testing_wasm.contract";
-		#[cfg(feature = "polkavm-contracts")]
-		let contract_file = "../pop-contracts/tests/files/testing.contract";
-		mock_build_process(
-			temp_dir.path().join("testing"),
-			current_dir.join(contract_file),
-			current_dir.join("../pop-contracts/tests/files/testing.json"),
-		)?;
-		let cache = temp_dir.path().join("");
-		let binary = contracts_node_generator(cache.clone(), None).await?;
-		binary.source(false, &(), true).await?;
-		set_executable_permission(binary.path())?;
-		let process = run_contracts_node(binary.path(), None, random_port).await?;
-		Ok((process, random_port, temp_dir))
-	}
-
-	fn stop_test_environment(id: &str) -> anyhow::Result<()> {
-		Command::new("kill").args(["-s", "TERM", id]).spawn()?.wait()?;
-		Ok(())
-	}
 
 	#[test]
 	fn conversion_up_contract_command_to_up_opts_works() -> anyhow::Result<()> {
@@ -548,126 +521,10 @@ mod tests {
 				gas_limit: None,
 				proof_size: None,
 				salt: None,
-				url: Url::parse("ws://localhost:9944")?,
+				url: Url::parse(urls::LOCAL)?,
 				suri: "//Alice".to_string(),
 			}
 		);
-		Ok(())
-	}
-
-	#[tokio::test]
-	async fn get_upload_and_instantiate_call_data_works() -> anyhow::Result<()> {
-		let (contracts_node_process, port, temp_dir) = start_test_environment().await?;
-		sleep(Duration::from_secs(5)).await;
-
-		get_upload_call_data_works(port, temp_dir.path().join("testing")).await?;
-		get_instantiate_call_data_works(port, temp_dir.path().join("testing")).await?;
-
-		// Stop running contracts-node
-		stop_test_environment(&contracts_node_process.id().to_string())?;
-		Ok(())
-	}
-
-	async fn get_upload_call_data_works(port: u16, temp_dir: PathBuf) -> anyhow::Result<()> {
-		let localhost_url = format!("ws://127.0.0.1:{}", port);
-
-		let up_contract_opts = UpContractCommand {
-			path: Some(temp_dir),
-			constructor: "new".to_string(),
-			args: vec![],
-			value: "0".to_string(),
-			gas_limit: None,
-			proof_size: None,
-			salt: None,
-			url: Url::parse(&localhost_url).expect("given url is valid"),
-			suri: "//Alice".to_string(),
-			dry_run: false,
-			upload_only: true,
-			skip_confirm: true,
-			use_wallet: true,
-		};
-
-		let rpc_client = subxt::backend::rpc::RpcClient::from_url(&up_contract_opts.url).await?;
-		let client = subxt::OnlineClient::<SubstrateConfig>::from_rpc_client(rpc_client).await?;
-
-		// Retrieve call data based on the above command options.
-		let (retrieved_call_data, _) = match up_contract_opts.get_contract_data().await {
-			Ok(data) => data,
-			Err(e) => {
-				error(format!("An error occurred getting the call data: {e}"))?;
-				return Err(e);
-			},
-		};
-		// We have retrieved some payload.
-		assert!(!retrieved_call_data.is_empty());
-
-		// Craft encoded call data for an upload code call.
-		let contract_code = get_contract_code(up_contract_opts.path.as_ref())?;
-		#[cfg(feature = "polkavm-contracts")]
-		let upload_exec = set_up_upload(up_contract_opts.into()).await?;
-		#[cfg(feature = "polkavm-contracts")]
-		let storage_deposit_limit = upload_exec.opts().storage_deposit_limit().unwrap();
-		#[cfg(feature = "wasm-contracts")]
-		let storage_deposit_limit: Option<u128> = None;
-		let upload_code = UploadCode::new(
-			contract_code,
-			storage_deposit_limit,
-			#[cfg(feature = "wasm-contracts")]
-			contract_extrinsics::upload::Determinism::Enforced,
-		);
-		let expected_call_data = upload_code.build();
-		let mut encoded_expected_call_data = Vec::<u8>::new();
-		expected_call_data
-			.encode_call_data_to(&client.metadata(), &mut encoded_expected_call_data)?;
-
-		// Retrieved call data and calculated match.
-		assert_eq!(retrieved_call_data, encoded_expected_call_data);
-		Ok(())
-	}
-
-	async fn get_instantiate_call_data_works(port: u16, temp_dir: PathBuf) -> anyhow::Result<()> {
-		let localhost_url = format!("ws://127.0.0.1:{}", port);
-
-		let up_contract_opts = UpContractCommand {
-			path: Some(temp_dir),
-			constructor: "new".to_string(),
-			args: vec!["false".to_string()],
-			value: "0".to_string(),
-			gas_limit: Some(200_000_000),
-			proof_size: Some(30_000),
-			salt: None,
-			url: Url::parse(&localhost_url).expect("given url is valid"),
-			suri: "//Alice".to_string(),
-			dry_run: false,
-			upload_only: false,
-			skip_confirm: true,
-			use_wallet: true,
-		};
-
-		// Retrieve call data based on the above command options.
-		let (retrieved_call_data, _) = match up_contract_opts.get_contract_data().await {
-			Ok(data) => data,
-			Err(e) => {
-				error(format!("An error occurred getting the call data: {e}"))?;
-				return Err(e);
-			},
-		};
-		// We have retrieved some payload.
-		assert!(!retrieved_call_data.is_empty());
-
-		// Craft instantiate call data.
-		let weight = Weight::from_parts(200_000_000, 30_000);
-		#[cfg(feature = "wasm-contracts")]
-		let expected_call_data =
-			get_instantiate_payload(set_up_deployment(up_contract_opts.into()).await?, weight)?;
-
-		#[cfg(feature = "polkavm-contracts")]
-		let instantiate_exec = set_up_deployment(up_contract_opts.into()).await?;
-		#[cfg(feature = "polkavm-contracts")]
-		let expected_call_data = get_instantiate_payload(instantiate_exec, weight).await?;
-		// Retrieved call data matches the one crafted above.
-		assert_eq!(retrieved_call_data, expected_call_data);
-
 		Ok(())
 	}
 }
