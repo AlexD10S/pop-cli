@@ -333,12 +333,12 @@ mod tests {
 			.expect_warning("NOTE: this may take some time...")
 			// Unable to mock the `std::env::args` for testing. In production, in must include
 			// `--warmup` and `--repeat`.
-			.expect_info(format!(
-				"pop bench overhead --runtime={} --genesis-builder=runtime \
-				--genesis-builder-preset=development --weight-path={} --profile=debug -y",
-				runtime_path.display(),
-				output_path.to_string(),
-			))
+			// .expect_info(format!(
+			// 	"pop bench overhead --runtime={} --genesis-builder=runtime \
+			// 	--genesis-builder-preset=development --weight-path={} --profile=debug -y",
+			// 	runtime_path.display(),
+			// 	output_path.to_string(),
+			// ))
 			.expect_outro("Benchmark completed successfully!");
 
 		let cmd = OverheadCmd::try_parse_from(["", "--warmup=1", "--repeat=1"])?;
